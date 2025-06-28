@@ -917,7 +917,7 @@ const App = () => {
       <footer className="text-white text-center mt-10 text-sm">
         <p>Developed by VectorMedia</p>
         <p className="opacity-70">©{new Date().getFullYear()} - All rights reserved</p>
-        <p className="opacity-70">V1.1.8</p>
+        <p className="opacity-70">V1.2</p>
       </footer>
     </div>
   );
