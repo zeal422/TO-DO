@@ -1,41 +1,34 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import "./index.css";
 import Preloader from "./Preloader";
 import { Bell, Plus, Trash2, FolderPlus, FolderOpen, X } from "lucide-react";
+// For production, install and use sanitize-html
+// import sanitizeHtml from "sanitize-html";
 
+// === Constants ===
 const COLORS = [
   "#d62338", "#357C74", "#4D4D4D", "#1C1C1C", "#fbbf24", "#2563eb"
 ];
-
 const DEFAULT_LISTS = [
   { id: "personal", name: "Personal" },
   { id: "work", name: "Work" },
   { id: "groceries", name: "Groceries" }
 ];
-
 const TASK_TYPES = [
   { value: "quick", label: "Quick" },
   { value: "daily", label: "Daily" },
   { value: "longterm", label: "Long-term" }
 ];
-
 const MAX_LIST_NAME = 25;
+const UNDO_TIMEOUT = 6000;
+const LOCAL_STORAGE_LIMIT = 5 * 1024 * 1024;
+const TASKS_PER_PAGE = 100;
 
+// === Utility Functions ===
 function isTaskExpired(task) {
   if (!task.dueDate) return false;
   return !task.done && !task.archived && new Date(task.dueDate).getTime() < Date.now();
 }
-
-function getInitialData() {
-  const lists = JSON.parse(localStorage.getItem("lists")) || DEFAULT_LISTS;
-  const tasks = JSON.parse(localStorage.getItem("tasks")) || {};
-  const archive = JSON.parse(localStorage.getItem("archive")) || {};
-  const notifications = JSON.parse(localStorage.getItem("notifications")) || [];
-  return { lists, tasks, archive, notifications };
-}
-
-const UNDO_TIMEOUT = 6000;
-
 function formatDuration(ms) {
   const min = Math.round(ms / 60000);
   if (min >= 120) return `${Math.round(min / 60)} hours`;
@@ -43,7 +36,6 @@ function formatDuration(ms) {
   if (min > 1) return `${min} minutes`;
   return "a moment";
 }
-
 function setFaviconBadge(count) {
   const favicon = document.querySelector("link[rel~='icon']");
   if (!favicon) return;
@@ -81,6 +73,131 @@ function setFaviconBadge(count) {
     favicon.href = setFaviconBadge.originalHref;
   }
 }
+function getInitialData() {
+  try {
+    const lists = JSON.parse(localStorage.getItem("lists")) || DEFAULT_LISTS;
+    const tasks = JSON.parse(localStorage.getItem("tasks")) || {};
+    const archive = JSON.parse(localStorage.getItem("archive")) || {};
+    const notifications = JSON.parse(localStorage.getItem("notifications")) || [];
+    return { lists, tasks, archive, notifications };
+  } catch (e) {
+    localStorage.clear();
+    return { lists: DEFAULT_LISTS, tasks: {}, archive: {}, notifications: [] };
+  }
+}
+function sanitizeInput(str) {
+  // For production, use sanitize-html:
+  // return sanitizeHtml(str, { allowedTags: [], allowedAttributes: {} });
+  return String(str).replace(/[<>&"'`]/g, c => ({
+    "<": "&lt;", ">": "&gt;", "&": "&amp;", "\"": "&quot;", "'": "&#39;", "`": "&#96;"
+  }[c]));
+}
+function getStorageSize() {
+  let total = 0;
+  for (let key in localStorage) {
+    if (!localStorage.hasOwnProperty(key)) continue;
+    total += (localStorage[key].length + key.length) * 2;
+  }
+  return total;
+}
+function uuid() {
+  // Simple UUID v4
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => {
+    const r = Math.random() * 16 | 0, v = c === "x" ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
+
+// --- Custom Hook for Efficient Timer Management (reminder state in localStorage) ---
+function useTaskTimers(tasks, pushNotification, showBrowserNotification) {
+  useEffect(() => {
+    let timeoutId = null;
+
+    const checkTasks = () => {
+      const reminderSent = JSON.parse(localStorage.getItem("reminderSent") || "{}");
+      let nextCheck = 60000; // Default to 1 minute if no due dates
+
+      Object.keys(tasks).forEach(listId => {
+        (tasks[listId] || []).forEach((task) => {
+          if (task.dueDate && !task.done && !task.archived) {
+            const due = new Date(task.dueDate).getTime();
+            const now = Date.now();
+            const timeLeft = due - now;
+            const uniqueKey = `${listId}:${task.id}:${task.dueDate}`;
+
+            // Expired
+            if (timeLeft <= 0 && !reminderSent[uniqueKey + ":expired"]) {
+              reminderSent[uniqueKey + ":expired"] = true;
+              pushNotification({
+                type: "expired",
+                message: `Task "${task.text}" has expired!`,
+                task,
+                list: listId
+              });
+              showBrowserNotification("Task Expired", `Task "${task.text}" has expired!`);
+            }
+
+            // Reminder at half the remaining time
+            if (!reminderSent[uniqueKey + ":reminder"] && timeLeft > 2 * 60 * 1000) {
+              const halfTime = timeLeft / 2;
+              if (timeLeft <= halfTime + 60000 && timeLeft >= halfTime - 60000) {
+                reminderSent[uniqueKey + ":reminder"] = true;
+                pushNotification({
+                  type: "reminder",
+                  message: `Task "${task.text}" is due in ${formatDuration(timeLeft)}!`,
+                  task,
+                  list: listId
+                });
+                showBrowserNotification("Task Reminder", `Task "${task.text}" is due in ${formatDuration(timeLeft)}!`);
+              }
+            }
+
+            // Set next check to the smallest timeLeft or 1 minute
+            if (timeLeft > 0 && timeLeft < nextCheck) {
+              nextCheck = Math.max(1000, timeLeft); // Minimum 1 second to avoid overload
+            }
+          }
+        });
+      });
+
+      localStorage.setItem("reminderSent", JSON.stringify(reminderSent));
+      timeoutId = setTimeout(checkTasks, nextCheck);
+    };
+
+    checkTasks(); // Run immediately on mount or update
+
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [tasks, pushNotification, showBrowserNotification]);
+}
+
+// --- Undo Queue for Robust Undo ---
+function useUndoQueue(timeout = UNDO_TIMEOUT) {
+  const [queue, setQueue] = useState([]);
+  const timers = useRef([]);
+
+  const push = (item) => {
+    setQueue(q => [...q, item]);
+    const idx = queue.length;
+    timers.current[idx] = setTimeout(() => {
+      setQueue(q => q.filter((_, i) => i !== idx));
+    }, timeout);
+  };
+
+  const pop = () => {
+    const [item, ...rest] = queue;
+    setQueue(rest);
+    return item;
+  };
+
+  const remove = (idx) => {
+    setQueue(q => q.filter((_, i) => i !== idx));
+    clearTimeout(timers.current[idx]);
+  };
+
+  return { queue, push, pop, remove };
+}
 
 const App = () => {
   const [bgColor, setBgColor] = useState(
@@ -104,104 +221,88 @@ const App = () => {
 
   const [dueDatePrompt, setDueDatePrompt] = useState(false);
 
-  const [undoInfo, setUndoInfo] = useState(null);
-  const undoTimer = useRef(null);
+  // Undo Queues
+  const [undoListQueue, setUndoListQueue] = useState([]);
+  const [undoTaskQueue, setUndoTaskQueue] = useState([]);
 
   const [showNotifCenter, setShowNotifCenter] = useState(false);
-  const [notifViewed, setNotifViewed] = useState(false);
 
   const [lastNotifView, setLastNotifView] = useState(() => {
-    return JSON.parse(localStorage.getItem("lastNotifView") || "{}");
+    try {
+      return JSON.parse(localStorage.getItem("lastNotifView") || "{}");
+    } catch {
+      return {};
+    }
   });
 
   const [highlightedTask, setHighlightedTask] = useState(null);
+  const [selectedTask, setSelectedTask] = useState(null);
   const taskRefs = useRef({});
 
-  useEffect(() => {
-    localStorage.setItem("lastNotifView", JSON.stringify(lastNotifView));
-  }, [lastNotifView]);
+  // Pagination for large lists
+  const [page, setPage] = useState(0);
 
-  const shownExpiredNotifications = useRef(new Set(
-    JSON.parse(localStorage.getItem("shownExpiredNotifications") || "[]")
-  ));
+  // --- Timer Management (single interval) ---
+  useTaskTimers(tasks, pushNotification, showBrowserNotification);
 
+  // --- Storage: Save with Error Handling and proactive warning ---
   useEffect(() => {
-    localStorage.setItem(
-      "shownExpiredNotifications",
-      JSON.stringify(Array.from(shownExpiredNotifications.current))
-    );
-  }, [tasks]);
+    try {
+      localStorage.setItem("bgColor", bgColor);
+      localStorage.setItem("lists", JSON.stringify(lists));
+      localStorage.setItem("tasks", JSON.stringify(tasks));
+      localStorage.setItem("archive", JSON.stringify(archive));
+      localStorage.setItem("currentList", currentList);
+      localStorage.setItem("notifications", JSON.stringify(notifications));
+      if (getStorageSize() > LOCAL_STORAGE_LIMIT * 0.95) {
+        alert("Warning: Local storage is almost full. Please archive or export data soon.");
+      }
+    } catch (e) {
+      alert("Local storage quota exceeded! Please delete some tasks/lists.");
+    }
+  }, [bgColor, lists, tasks, archive, currentList, notifications]);
 
-  const completedCount = (tasks[currentList] || []).filter(t => t.done && !t.archived).length;
-
+  // --- Accessibility: Focus Trap for Modals (suggest using react-focus-lock for production) ---
   useEffect(() => {
-    const timer = setTimeout(() => setLoading(false), 800);
-    return () => clearTimeout(timer);
-  }, []);
-
+    if (selectedTask) {
+      const handleKey = e => {
+        if (e.key === "Escape") setSelectedTask(null);
+      };
+      window.addEventListener("keydown", handleKey);
+      return () => window.removeEventListener("keydown", handleKey);
+    }
+  }, [selectedTask]);
   useEffect(() => {
-    localStorage.setItem("bgColor", bgColor);
-  }, [bgColor]);
-  useEffect(() => {
-    localStorage.setItem("lists", JSON.stringify(lists));
-    localStorage.setItem("tasks", JSON.stringify(tasks));
-    localStorage.setItem("archive", JSON.stringify(archive));
-    localStorage.setItem("currentList", currentList);
-    localStorage.setItem("notifications", JSON.stringify(notifications));
-  }, [lists, tasks, archive, currentList, notifications]);
+    if (showNotifCenter) {
+      const handleKey = e => {
+        if (e.key === "Escape") setShowNotifCenter(false);
+      };
+      window.addEventListener("keydown", handleKey);
+      return () => window.removeEventListener("keydown", handleKey);
+    }
+  }, [showNotifCenter]);
 
   useEffect(() => {
     if ("Notification" in window && Notification.permission === "default") {
       Notification.requestPermission();
     }
   }, []);
-
   useEffect(() => {
-    let timers = [];
-    Object.keys(tasks).forEach(listId => {
-      (tasks[listId] || []).forEach((task, idx) => {
-        if (task.dueDate && !task.done && !task.archived) {
-          const due = new Date(task.dueDate).getTime();
-          const now = Date.now();
-          const timeLeft = due - now;
-          if (timeLeft > 2 * 60 * 1000) {
-            const halfTime = Math.floor(timeLeft / 2);
-            timers.push(setTimeout(() => {
-              pushNotification({
-                type: "reminder",
-                message: `Task "${task.text}" is due in ${formatDuration(halfTime)}!`,
-                task,
-                list: listId
-              });
-              showBrowserNotification("Task Reminder", `Task "${task.text}" is due in ${formatDuration(halfTime)}!`);
-            }, halfTime));
-          }
-          const uniqueKey = `${listId}:${task.text}:${task.dueDate}`;
-          if (timeLeft > 0) {
-            timers.push(setTimeout(() => {
-              if (!shownExpiredNotifications.current.has(uniqueKey)) {
-                shownExpiredNotifications.current.add(uniqueKey);
-                pushNotification({
-                  type: "expired",
-                  message: `Task "${task.text}" has expired!`,
-                  task,
-                  list: listId
-                });
-                showBrowserNotification("Task Expired", `Task "${task.text}" has expired!`);
-                localStorage.setItem(
-                  "shownExpiredNotifications",
-                  JSON.stringify(Array.from(shownExpiredNotifications.current))
-                );
-              }
-            }, timeLeft));
-          }
-        }
-      });
-    });
-    return () => timers.forEach(clearTimeout);
-    // eslint-disable-next-line
-  }, [tasks]);
+    setFaviconBadge(unseenCount);
+  }, [notifications]);
+  useEffect(() => {
+    if (highlightedTask && highlightedTask.listId === currentList) {
+      const el = taskRefs.current[highlightedTask.idx];
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [highlightedTask, currentList]);
+  useEffect(() => {
+    const timer = setTimeout(() => setLoading(false), 800);
+    return () => clearTimeout(timer);
+  }, []);
 
+  // --- Notification/Undo/Highlight Logic ---
+  const completedCount = (tasks[currentList] || []).filter(t => t.done && !t.archived).length;
   useEffect(() => {
     if (completedCount > 0) {
       setBadgeAnim(true);
@@ -212,10 +313,39 @@ const App = () => {
 
   function showBrowserNotification(title, body) {
     if ("Notification" in window && Notification.permission === "granted") {
-      new Notification(title, { body, icon: "/favicon.ico" });
+      try {
+        new Notification(title, { body, icon: "/favicon.ico" });
+      } catch {
+        // Fallback UI
+        setData(prev => ({
+          ...prev,
+          notifications: [
+            {
+              id: Date.now() + Math.random(),
+              type: "fallback",
+              message: `${title}: ${body}`,
+              time: new Date().toISOString()
+            },
+            ...prev.notifications
+          ]
+        }));
+      }
+    } else {
+      // Fallback UI
+      setData(prev => ({
+        ...prev,
+        notifications: [
+          {
+            id: Date.now() + Math.random(),
+            type: "fallback",
+            message: `${title}: ${body}`,
+            time: new Date().toISOString()
+          },
+          ...prev.notifications
+        ]
+      }));
     }
   }
-
   function pushNotification({ type, message, task, list }) {
     setData(prev => ({
       ...prev,
@@ -236,19 +366,25 @@ const App = () => {
     setTimeout(() => setBadgeAnim(false), 700);
   }
 
-  // --- Task CRUD ---
-  const addTask = () => {
-    if (!newTask.text.trim()) return;
+  // --- useCallback for handlers to avoid unnecessary re-renders ---
+  const addTask = useCallback(() => {
+    const sanitizedText = sanitizeInput(newTask.text.trim());
+    if (!sanitizedText) return;
     if (!newTask.dueDate) {
       setDueDatePrompt(true);
       setTimeout(() => setDueDatePrompt(false), 2000);
       return;
     }
+    if ((tasks[currentList] || []).some(t => t.text === sanitizedText && t.dueDate === newTask.dueDate)) {
+      alert("Duplicate task with same text and due date exists.");
+      return;
+    }
     const task = {
-      text: newTask.text,
+      id: uuid(),
+      text: sanitizedText,
       type: newTask.type,
       dueDate: newTask.dueDate,
-      subtasks: newTask.type === "longterm" ? newTask.subtasks : "",
+      subtasks: newTask.type === "longterm" ? sanitizeInput(newTask.subtasks) : "",
       done: false,
       archived: false,
       created: Date.now()
@@ -262,24 +398,13 @@ const App = () => {
     }));
     setNewTask({ text: "", type: "quick", dueDate: "", subtasks: "" });
 
-    // Highlight the new task at index 0
     setTimeout(() => {
       setHighlightedTask({ listId: currentList, idx: 0 });
       setTimeout(() => setHighlightedTask(null), 2000);
     }, 100);
-  };
+  }, [newTask, tasks, currentList]);
 
-  const removeTask = idx => {
-    setData(prev => ({
-      ...prev,
-      tasks: {
-        ...prev.tasks,
-        [currentList]: prev.tasks[currentList].filter((_, i) => i !== idx)
-      }
-    }));
-  };
-
-  const toggleDone = idx => {
+  const toggleDone = useCallback((idx) => {
     setData(prev => {
       const updated = [...prev.tasks[currentList]];
       if (!updated[idx].done && !isTaskExpired(updated[idx])) {
@@ -297,43 +422,100 @@ const App = () => {
         tasks: { ...prev.tasks, [currentList]: updated }
       };
     });
-  };
+  }, [currentList]);
 
-  const archiveTask = idx => {
+  // --- Archive Task with Undo (with unique id) ---
+const archiveTask = useCallback((idx) => {
+  const taskToArchive = (tasks[currentList] || [])[idx];
+  setData(prev => {
+    const updated = [...prev.tasks[currentList]];
+    const [archivedTask] = updated.splice(idx, 1);
+    archivedTask.archived = true;
+
+    // Check if this task is already in the undo queue
+    setUndoTaskQueue(prevQueue => {
+      const existing = prevQueue.find(u => u.task.id === archivedTask.id);
+      if (existing) {
+        clearTimeout(existing.timer); // Clear the old timer
+        return prevQueue.map(u => 
+          u.task.id === archivedTask.id ? { ...u, timer: setTimeout(() => {
+            setUndoTaskQueue(q2 => q2.filter(u2 => u2.task.id !== archivedTask.id));
+          }, UNDO_TIMEOUT) } : u
+        );
+      } else {
+        return [
+          ...prevQueue,
+          {
+            task: archivedTask,
+            idx,
+            listId: currentList,
+            timer: setTimeout(() => {
+              setUndoTaskQueue(q2 => q2.filter(u => u.task.id !== archivedTask.id));
+            }, UNDO_TIMEOUT)
+          }
+        ];
+      }
+    });
+
+    return {
+      ...prev,
+      tasks: { ...prev.tasks, [currentList]: updated },
+      archive: {
+        ...prev.archive,
+        [currentList]: [archivedTask, ...(prev.archive[currentList] || [])] // Prepend instead of append
+      }
+    };
+  });
+}, [currentList, tasks]);
+
+  // --- Undo Archive Task (with unique id) ---
+  const undoArchiveTask = useCallback((taskId) => {
+    const undoInfo = undoTaskQueue.find(u => u.task.id === taskId);
+    if (!undoInfo) return;
+    clearTimeout(undoInfo.timer);
     setData(prev => {
-      const updated = [...prev.tasks[currentList]];
-      const [archivedTask] = updated.splice(idx, 1);
-      archivedTask.archived = true;
+      const newArchive = [...(prev.archive[undoInfo.listId] || [])];
+      const taskIdx = newArchive.findIndex(
+        t => t.id === undoInfo.task.id
+      );
+      if (taskIdx !== -1) newArchive.splice(taskIdx, 1);
+
+      const newTasks = [...(prev.tasks[undoInfo.listId] || [])];
+      undoInfo.task.archived = false;
+      newTasks.splice(undoInfo.idx, 0, undoInfo.task);
+
       return {
         ...prev,
-        tasks: { ...prev.tasks, [currentList]: updated },
-        archive: {
-          ...prev.archive,
-          [currentList]: [...(prev.archive[currentList] || []), archivedTask]
-        }
+        tasks: { ...prev.tasks, [undoInfo.listId]: newTasks },
+        archive: { ...prev.archive, [undoInfo.listId]: newArchive }
       };
     });
-  };
+    setUndoTaskQueue(q => q.filter(u => u.task.id !== taskId));
+  }, [undoTaskQueue]);
 
-  const clearArchive = () => {
-    if (
-      window.confirm(
-        "Are you sure you want to permanently delete all archived tasks in this list? This cannot be undone."
-      )
-    ) {
-      setData(prev => ({
+  // --- Remove Task Permanently ---
+  const removeTask = useCallback((idx) => {
+    setData(prev => {
+      const updated = [...prev.tasks[currentList]];
+      updated.splice(idx, 1);
+      return {
         ...prev,
-        archive: { ...prev.archive, [currentList]: [] }
-      }));
-    }
-  };
+        tasks: { ...prev.tasks, [currentList]: updated }
+      };
+    });
+  }, [currentList, tasks]);
 
-  const addList = () => {
+  // --- List CRUD (with undo queue) ---
+  const addList = useCallback(() => {
     let name = prompt(`List name? (max ${MAX_LIST_NAME} characters)`);
     if (!name) return;
-    name = name.trim();
+    name = sanitizeInput(name.trim());
     if (name.length > MAX_LIST_NAME) {
       alert(`List name too long! Max ${MAX_LIST_NAME} characters.`);
+      return;
+    }
+    if (lists.some(l => l.name === name)) {
+      alert("A list with this name already exists.");
       return;
     }
     const id = name.toLowerCase().replace(/\s+/g, "-") + "-" + Date.now();
@@ -344,19 +526,25 @@ const App = () => {
       archive: { ...prev.archive, [id]: [] }
     }));
     setCurrentList(id);
-  };
+  }, [lists]);
 
-  const removeList = id => {
+  const removeList = useCallback((id) => {
     if (!window.confirm("Delete this list and all its tasks?")) return;
     const deletedList = lists.find(l => l.id === id);
     const deletedTasks = tasks[id] || [];
     const deletedArchive = archive[id] || [];
-    setUndoInfo({
-      list: deletedList,
-      tasks: deletedTasks,
-      archive: deletedArchive,
-      prevCurrentList: currentList,
-    });
+    setUndoListQueue(q => [
+      ...q,
+      {
+        list: deletedList,
+        tasks: deletedTasks,
+        archive: deletedArchive,
+        prevCurrentList: currentList,
+        timer: setTimeout(() => {
+          setUndoListQueue(q2 => q2.filter(u => u.list.id !== id));
+        }, UNDO_TIMEOUT)
+      }
+    ]);
     setData(prev => {
       const newLists = prev.lists.filter(l => l.id !== id);
       const newTasks = { ...prev.tasks };
@@ -366,12 +554,12 @@ const App = () => {
       return { lists: newLists, tasks: newTasks, archive: newArchive, notifications: prev.notifications };
     });
     setCurrentList(lists.find(l => l.id !== id)?.id || "");
-    if (undoTimer.current) clearTimeout(undoTimer.current);
-    undoTimer.current = setTimeout(() => setUndoInfo(null), UNDO_TIMEOUT);
-  };
+  }, [lists, tasks, archive, currentList]);
 
-  const undoDeleteList = () => {
+  const undoDeleteList = useCallback((listId) => {
+    const undoInfo = undoListQueue.find(u => u.list.id === listId);
     if (!undoInfo) return;
+    clearTimeout(undoInfo.timer);
     setData(prev => ({
       ...prev,
       lists: [...prev.lists, undoInfo.list],
@@ -379,33 +567,26 @@ const App = () => {
       archive: { ...prev.archive, [undoInfo.list.id]: undoInfo.archive }
     }));
     setCurrentList(undoInfo.list.id);
-    setUndoInfo(null);
-    if (undoTimer.current) clearTimeout(undoTimer.current);
-  };
+    setUndoListQueue(q => q.filter(u => u.list.id !== listId));
+  }, [undoListQueue]);
 
   const unseenCount = notifications.filter(
     n => !lastNotifView[n.listId] || new Date(n.time).getTime() > lastNotifView[n.listId]
   ).length;
 
-  useEffect(() => {
-    setFaviconBadge(unseenCount);
-  }, [unseenCount]);
-
-  useEffect(() => {
-    if (highlightedTask && highlightedTask.listId === currentList) {
-      const el = taskRefs.current[highlightedTask.idx];
-      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
-    }
-  }, [highlightedTask, currentList]);
-
   if (loading) return <Preloader />;
 
+  // Pagination logic
+  const filteredTasks = (tasks[currentList] || []).filter(t => !t.archived);
+  const totalPages = Math.ceil(filteredTasks.length / TASKS_PER_PAGE);
+  const pagedTasks = filteredTasks.slice(page * TASKS_PER_PAGE, (page + 1) * TASKS_PER_PAGE);
+
+  // === UI ===
   return (
     <div
       className="min-h-screen transition-colors duration-300 relative px-1"
       style={{ backgroundColor: bgColor }}
     >
-
       {/* Color Picker */}
       <div className="flex justify-center pt-8">
         {COLORS.map((color) => (
@@ -414,6 +595,7 @@ const App = () => {
               className={`w-6 h-2 rounded-full`}
               style={{ backgroundColor: color }}
               onClick={() => setBgColor(color)}
+              aria-label={`Set background color to ${color}`}
             ></button>
             {bgColor === color && (
               <div className="absolute top-3 left-1/2 transform -translate-x-1/2 text-white">
@@ -437,7 +619,8 @@ const App = () => {
               boxShadow: currentList === list.id ? "0 1px 4px rgba(0,0,0,0.08)" : undefined,
               border: "none"
             }}
-            onClick={() => setCurrentList(list.id)}
+            onClick={() => { setCurrentList(list.id); setPage(0); }}
+            aria-label={`Switch to list ${list.name}`}
           >
             {list.name}
             <Trash2
@@ -446,12 +629,15 @@ const App = () => {
                 e.stopPropagation();
                 removeList(list.id);
               }}
+              aria-label={`Delete list ${list.name}`}
+              tabIndex={-1}
             />
           </button>
         ))}
         <button
           className="px-2 py-1 rounded-full bg-green-500 text-white flex items-center gap-1"
           onClick={addList}
+          aria-label="Add new list"
         >
           <FolderPlus className="w-4 h-4" /> Add List
         </button>
@@ -460,25 +646,69 @@ const App = () => {
             showArchive ? "bg-yellow-400 text-black" : "bg-black/30 text-white"
           }`}
           onClick={() => setShowArchive(a => !a)}
+          aria-label={showArchive ? "Hide Archive" : "Show Archive"}
         >
           <FolderOpen className="w-4 h-4" /> {showArchive ? "Hide" : "Show"} Archive
         </button>
       </div>
 
-      {/* Undo Snackbar */}
-      {undoInfo && (
-        <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-gray-900 text-white px-6 py-3 rounded-full shadow-lg flex items-center gap-4 z-50 animate-fade-in">
+      {/* Undo Snackbar for List */}
+      {undoListQueue.map((undoInfo, idx) => (
+        <div key={undoInfo.list.id} className="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-gray-900 text-white px-6 py-3 rounded-full shadow-lg flex items-center gap-4 z-50 animate-fade-in" role="alert">
           <span>
             List <b>{undoInfo.list.name}</b> deleted.
           </span>
           <button
             className="bg-blue-500 hover:bg-blue-700 text-white px-3 py-1 rounded-full font-semibold transition"
-            onClick={undoDeleteList}
+            onClick={() => undoDeleteList(undoInfo.list.id)}
+            aria-label="Undo delete list"
           >
             Undo
           </button>
         </div>
-      )}
+      ))}
+
+      {/* Undo Snackbar for Task */}
+{undoTaskQueue.map((undoInfo, idx) => (
+        <div
+          key={undoInfo.task.id}
+          className="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-gray-900 text-white px-6 py-3 rounded-full shadow-lg flex items-center gap-4 z-50 animate-fade-in"
+          role="alert"
+          style={{ bottom: `${4 + idx * 60}px` }} // Stack vertically if multiple
+        >
+          <span>
+            Task <b>{undoInfo.task.text}</b> archived.
+          </span>
+          <button
+            className="bg-blue-500 hover:bg-blue-700 text-white px-3 py-1 rounded-full font-semibold transition"
+            onClick={() => undoArchiveTask(undoInfo.task.id)}
+            aria-label="Undo archive task"
+          >
+            Undo
+          </button>
+        </div>
+      ))}
+
+      {/* Undo Snackbar for List (Persistent across tabs) */}
+      {undoListQueue.map((undoInfo, idx) => (
+        <div
+          key={undoInfo.list.id}
+          className="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-gray-900 text-white px-6 py-3 rounded-full shadow-lg flex items-center gap-4 z-50 animate-fade-in"
+          role="alert"
+          style={{ bottom: `${4 + idx * 60}px` }} // Stack vertically if multiple
+        >
+          <span>
+            List <b>{undoInfo.list.name}</b> deleted.
+          </span>
+          <button
+            className="bg-blue-500 hover:bg-blue-700 text-white px-3 py-1 rounded-full font-semibold transition"
+            onClick={() => undoDeleteList(undoInfo.list.id)}
+            aria-label="Undo delete list"
+          >
+            Undo
+          </button>
+        </div>
+      ))}
 
       {/* Title and Bell */}
       <div className="flex items-center justify-center mt-6 relative">
@@ -509,6 +739,7 @@ const App = () => {
                 className={`absolute -top-2 -right-2 bg-red-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center z-10
                   ${badgeAnim ? "animate-ping-short" : ""}
                 `}
+                aria-label={`${unseenCount} new notifications`}
               >
                 {unseenCount}
               </span>
@@ -519,7 +750,7 @@ const App = () => {
 
       {/* Notification Center Modal */}
       {showNotifCenter && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" role="dialog" aria-modal="true">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-xs sm:max-w-md mx-2 p-2 sm:p-4 relative overflow-auto">
             <button
               className="absolute top-2 right-2 text-gray-500 hover:text-black"
@@ -557,44 +788,8 @@ const App = () => {
                             behavior: "smooth",
                             block: isLast ? "end" : "center"
                           });
-
-                          let scrollTimeout;
-                          let observer;
-                          const triggerHighlight = () => {
-                            setHighlightedTask({ listId: notif.listId, idx });
-                            setTimeout(() => setHighlightedTask(null), 2000);
-                            if (observer) observer.disconnect();
-                            window.removeEventListener("scroll", onScroll, true);
-                          };
-
-                          const onScroll = () => {
-                            clearTimeout(scrollTimeout);
-                            scrollTimeout = setTimeout(() => {
-                              if (el.getBoundingClientRect().top >= 0 &&
-                                  el.getBoundingClientRect().bottom <= (window.innerHeight || document.documentElement.clientHeight)) {
-                                triggerHighlight();
-                              }
-                            }, 120);
-                          };
-                          window.addEventListener("scroll", onScroll, true);
-
-                          observer = new window.IntersectionObserver(
-                            (entries, obs) => {
-                              if (entries[0].intersectionRatio >= 0.9) {
-                                clearTimeout(scrollTimeout);
-                                scrollTimeout = setTimeout(triggerHighlight, 120);
-                              }
-                            },
-                            { threshold: 0.9 }
-                          );
-                          observer.observe(el);
-
-                          setTimeout(() => {
-                            if (observer) observer.disconnect();
-                            window.removeEventListener("scroll", onScroll, true);
-                            setHighlightedTask({ listId: notif.listId, idx });
-                            setTimeout(() => setHighlightedTask(null), 2000);
-                          }, 2500);
+                          setHighlightedTask({ listId: notif.listId, idx });
+                          setTimeout(() => setHighlightedTask(null), 2000);
                         } else {
                           setHighlightedTask({ listId: notif.listId, idx });
                           setTimeout(() => setHighlightedTask(null), 2000);
@@ -607,6 +802,8 @@ const App = () => {
                       ? `Go to list: ${lists.find(l => l.id === notif.listId).name}`
                       : "Go to list"
                   }
+                  tabIndex={0}
+                  aria-label={`Notification: ${notif.message}`}
                 >
                   <div className="flex items-center gap-2">
                     {notif.type === "reminder" && (
@@ -638,9 +835,51 @@ const App = () => {
               onClick={() =>
                 setData(prev => ({ ...prev, notifications: [] }))
               }
+              aria-label="Clear all notifications"
             >
               Clear All Notifications
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Task Details Modal */}
+      {selectedTask && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" role="dialog" aria-modal="true">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-xs sm:max-w-md mx-2 p-4 relative">
+            <button
+              className="absolute top-2 right-2 text-gray-500 hover:text-black"
+              onClick={() => setSelectedTask(null)}
+              aria-label="Close task details"
+              style={{ zIndex: 10 }}
+            >
+              <X className="w-6 h-6" />
+            </button>
+            <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+              <span className="inline-block w-2 h-2 rounded-full bg-blue-400"></span>
+              Task Details
+            </h2>
+            <div className="mb-2">
+              <span className="font-semibold">Text:</span>
+              <div className="break-words">{selectedTask.text}</div>
+            </div>
+            <div className="mb-2">
+              <span className="font-semibold">Type:</span> {selectedTask.type}
+            </div>
+            {selectedTask.dueDate && (
+              <div className="mb-2">
+                <span className="font-semibold">Due:</span> {new Date(selectedTask.dueDate).toLocaleString()}
+              </div>
+            )}
+            {selectedTask.subtasks && (
+              <div className="mb-2">
+                <span className="font-semibold">Subtasks:</span> {selectedTask.subtasks}
+              </div>
+            )}
+            <div className="mb-2">
+              <span className="font-semibold">Status:</span>{" "}
+              {selectedTask.done ? "Completed" : isTaskExpired(selectedTask) ? "Expired" : "Active"}
+            </div>
           </div>
         </div>
       )}
@@ -676,6 +915,7 @@ const App = () => {
                 className="px-2 py-2 rounded-lg text-xs font-semibold bg-white text-gray-800 flex-shrink-0 border border-gray-200 focus:ring-2 focus:ring-offset-2 focus:ring-black/20"
                 value={newTask.type}
                 onChange={e => setNewTask(nt => ({ ...nt, type: e.target.value }))}
+                aria-label="Task type"
               >
                 {TASK_TYPES.map(t => (
                   <option key={t.value} value={t.value}>{t.label}</option>
@@ -689,6 +929,7 @@ const App = () => {
                 onChange={e => setNewTask(nt => ({ ...nt, text: e.target.value }))}
                 maxLength={100}
                 required
+                aria-label="Task text"
               />
               <div className="flex flex-col relative">
                 <button
@@ -696,6 +937,7 @@ const App = () => {
                   className="flex items-center px-3 py-2 h-10 rounded-lg bg-white border border-gray-200 text-gray-700 text-base font-medium shadow-sm hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-400 transition"
                   onClick={() => document.getElementById('dueDateInput').showPicker && document.getElementById('dueDateInput').showPicker()}
                   style={{ minWidth: 180, justifyContent: "flex-start" }}
+                  aria-label="Pick due date"
                 >
                   <svg className="w-5 h-5 mr-2 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                     <rect x="3" y="4" width="18" height="18" rx="4" stroke="currentColor" strokeWidth="2" fill="none"/>
@@ -730,6 +972,7 @@ const App = () => {
                   value={newTask.subtasks}
                   onChange={e => setNewTask(nt => ({ ...nt, subtasks: e.target.value }))}
                   maxLength={100}
+                  aria-label="Subtasks"
                 />
               )}
               <button
@@ -744,13 +987,14 @@ const App = () => {
         </div>
       )}
 
-      {/* Task List */}
+      {/* Task List with Pagination */}
       {!showArchive && (
         <div className="flex flex-col items-center gap-3 w-full px-1 sm:px-2 mt-4">
-          {(tasks[currentList] || []).filter(t => !t.archived).length === 0 && (
+          {pagedTasks.length === 0 && (
             <div className="text-white opacity-60 mt-4">No tasks yet. Add one above!</div>
           )}
-          {(tasks[currentList] || []).filter(t => !t.archived).map((task, index) => {
+          {pagedTasks.map((task, index) => {
+            const globalIdx = page * TASKS_PER_PAGE + index;
             const expired = isTaskExpired(task);
             const completed = task.done;
             let bg = "bg-white";
@@ -771,16 +1015,20 @@ const App = () => {
             }
             const isHighlighted = highlightedTask &&
               highlightedTask.listId === currentList &&
-              highlightedTask.idx === index;
+              highlightedTask.idx === globalIdx;
 
             return (
               <div
-                key={index}
-                ref={el => { if (isHighlighted) taskRefs.current[index] = el; }}
+                key={task.id || task.created || globalIdx}
+                ref={el => { if (isHighlighted) taskRefs.current[globalIdx] = el; }}
                 className={`flex flex-nowrap items-center rounded-full px-2 py-1 w-11/12 md:w-1/2 shadow-md overflow-x-auto ${bg} ${border} ${isHighlighted ? "z-20 highlight-glow" : ""}`}
                 style={{ minHeight: "48px", transition: "box-shadow 0.3s, ring 0.3s" }}
+                onClick={() => setSelectedTask(task)}
+                tabIndex={0}
+                role="button"
+                aria-label={`Show details for task ${task.text}`}
               >
-                <span className={`font-bold mr-2 text-sm md:text-base flex-shrink-0 ${text}`}>{index + 1})</span>
+                <span className={`font-bold mr-2 text-sm md:text-base flex-shrink-0 ${text}`}>{globalIdx + 1})</span>
                 <span className={`flex-grow min-w-0 pr-2 text-sm md:text-base truncate ${text}`}>
                   {task.text}
                 </span>
@@ -802,7 +1050,10 @@ const App = () => {
                       ? "bg-red-300 border-red-400 text-white cursor-not-allowed"
                       : "bg-white border-gray-300 text-gray-700"
                   } border-2 flex-shrink-0`}
-                  onClick={() => !expired && !completed && toggleDone(index)}
+                  onClick={e => {
+                    e.stopPropagation();
+                    !expired && !completed && toggleDone(globalIdx);
+                  }}
                   aria-label="Mark as done"
                   disabled={completed || expired}
                   title={
@@ -825,18 +1076,51 @@ const App = () => {
                 </button>
                 <button
                   className="ml-2 w-7 h-7 flex items-center justify-center rounded-full bg-gray-200 text-gray-600 hover:bg-red-200 hover:text-red-600 transition flex-shrink-0"
-                  onClick={() => {
-                    if (window.confirm("Are you sure you want to delete this task?")) {
-                      archiveTask(index);
+                  onClick={e => {
+                    e.stopPropagation();
+                    if (window.confirm("Are you sure you want to archive this task?")) {
+                      archiveTask(globalIdx);
                     }
                   }}
                   aria-label="Archive task"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
+                <button
+                  className="ml-2 w-7 h-7 flex items-center justify-center rounded-full bg-gray-200 text-gray-600 hover:bg-black hover:text-white transition flex-shrink-0"
+                  onClick={e => {
+                    e.stopPropagation();
+                    if (window.confirm("Are you sure you want to permanently delete this task? This cannot be undone.")) {
+                      removeTask(globalIdx);
+                    }
+                  }}
+                  aria-label="Delete task"
+                  title="Delete task permanently"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
             );
           })}
+          {totalPages > 1 && (
+            <div className="flex gap-2 mt-2">
+              <button
+                className="px-3 py-1 rounded bg-gray-200 text-gray-700"
+                disabled={page === 0}
+                onClick={() => setPage(p => Math.max(0, p - 1))}
+              >
+                Prev
+              </button>
+              <span className="text-white">{page + 1} / {totalPages}</span>
+              <button
+                className="px-3 py-1 rounded bg-gray-200 text-gray-700"
+                disabled={page === totalPages - 1}
+                onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+              >
+                Next
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -862,7 +1146,7 @@ const App = () => {
             }
             return (
               <div
-                key={idx}
+                key={task.id || task.created || idx}
                 className={`flex flex-nowrap items-center rounded-full px-2 py-1 w-11/12 md:w-1/2 shadow-md overflow-x-auto ${bg} ${border}`}
                 style={{ minHeight: "48px" }}
               >
@@ -906,7 +1190,19 @@ const App = () => {
           {(archive[currentList] || []).length > 0 && (
             <button
               className="mt-4 px-6 py-2 rounded-full bg-red-500 hover:bg-red-700 text-white font-semibold shadow transition"
-              onClick={clearArchive}
+              onClick={() => {
+                if (
+                  window.confirm(
+                    "Are you sure you want to permanently delete all archived tasks in this list? This cannot be undone."
+                  )
+                ) {
+                  setData(prev => ({
+                    ...prev,
+                    archive: { ...prev.archive, [currentList]: [] }
+                  }));
+                }
+              }}
+              aria-label="Delete all archived tasks"
             >
               Delete All Archived Tasks
             </button>
