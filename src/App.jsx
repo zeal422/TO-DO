@@ -80,26 +80,23 @@ function getInitialData() {
     const archive = JSON.parse(localStorage.getItem("archive")) || {};
     const notifications = JSON.parse(localStorage.getItem("notifications")) || [];
 
-    // Add created timestamp to tasks if missing
-    const updatedTasks = {};
-    Object.keys(tasks).forEach(listId => {
-      updatedTasks[listId] = (tasks[listId] || []).map(task => ({
-        ...task,
-        created: task.created || Date.now() // Fallback to now if created is missing
-      }));
-    });
-    const updatedArchive = {};
-    Object.keys(archive).forEach(listId => {
-      updatedArchive[listId] = (archive[listId] || []).map(task => ({
-        ...task,
-        created: task.created || Date.now() // Fallback to now if created is missing
-      }));
+    // Initialize tasks and archive with empty arrays for each list
+    lists.forEach(list => {
+      if (!tasks[list.id]) tasks[list.id] = [];
+      if (!archive[list.id]) archive[list.id] = [];
     });
 
-    return { lists, tasks: updatedTasks, archive: updatedArchive, notifications };
+    return { lists, tasks, archive, notifications };
   } catch (e) {
+    console.error("Failed to parse localStorage:", e);
     localStorage.clear();
-    return { lists: DEFAULT_LISTS, tasks: {}, archive: {}, notifications: [] };
+    const defaultTasks = {};
+    const defaultArchive = {};
+    DEFAULT_LISTS.forEach(list => {
+      defaultTasks[list.id] = [];
+      defaultArchive[list.id] = [];
+    });
+    return { lists: DEFAULT_LISTS, tasks: defaultTasks, archive: defaultArchive, notifications: [] };
   }
 }
 function sanitizeInput(str) {
