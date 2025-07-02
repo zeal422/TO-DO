@@ -76,17 +76,20 @@ function setFaviconBadge(count) {
 function getInitialData() {
   try {
     const lists = JSON.parse(localStorage.getItem("lists")) || DEFAULT_LISTS;
-    const tasks = JSON.parse(localStorage.getItem("tasks")) || {};
+    let tasks = JSON.parse(localStorage.getItem("tasks")) || {};
     const archive = JSON.parse(localStorage.getItem("archive")) || {};
     const notifications = JSON.parse(localStorage.getItem("notifications")) || [];
 
-    // Initialize tasks and archive with empty arrays for each list
+    // Create a new tasks object to avoid mutating the parsed object directly
+    const initializedTasks = { ...tasks };
     lists.forEach(list => {
-      if (!tasks[list.id]) tasks[list.id] = [];
-      if (!archive[list.id]) archive[list.id] = [];
+      if (!initializedTasks[list.id]) initializedTasks[list.id] = [];
     });
 
-    return { lists, tasks, archive, notifications };
+    // Save the initialized tasks back to localStorage to ensure persistence
+    localStorage.setItem("tasks", JSON.stringify(initializedTasks));
+
+    return { lists, tasks: initializedTasks, archive, notifications };
   } catch (e) {
     console.error("Failed to parse localStorage:", e);
     localStorage.clear();
@@ -96,6 +99,9 @@ function getInitialData() {
       defaultTasks[list.id] = [];
       defaultArchive[list.id] = [];
     });
+    localStorage.setItem("lists", JSON.stringify(DEFAULT_LISTS));
+    localStorage.setItem("tasks", JSON.stringify(defaultTasks));
+    localStorage.setItem("archive", JSON.stringify(defaultArchive));
     return { lists: DEFAULT_LISTS, tasks: defaultTasks, archive: defaultArchive, notifications: [] };
   }
 }
