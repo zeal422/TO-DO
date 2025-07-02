@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useSwipeable } from 'react-swipeable';
 import "./index.css";
 import Preloader from "./Preloader";
+import TaskItem from "./TaskItem";
 import { Bell, Plus, Trash2, FolderPlus, FolderOpen, X } from "lucide-react";
-// For production, install and use sanitize-html
-// import sanitizeHtml from "sanitize-html";
 
 // === Constants ===
 const COLORS = [
@@ -79,17 +79,37 @@ function getInitialData() {
     const tasks = JSON.parse(localStorage.getItem("tasks")) || {};
     const archive = JSON.parse(localStorage.getItem("archive")) || {};
     const notifications = JSON.parse(localStorage.getItem("notifications")) || [];
-    return { lists, tasks, archive, notifications };
+
+    // Add created timestamp to tasks if missing
+    const updatedTasks = {};
+    Object.keys(tasks).forEach(listId => {
+      updatedTasks[listId] = (tasks[listId] || []).map(task => ({
+        ...task,
+        created: task.created || Date.now() // Fallback to now if created is missing
+      }));
+    });
+    const updatedArchive = {};
+    Object.keys(archive).forEach(listId => {
+      updatedArchive[listId] = (archive[listId] || []).map(task => ({
+        ...task,
+        created: task.created || Date.now() // Fallback to now if created is missing
+      }));
+    });
+
+    return { lists, tasks: updatedTasks, archive: updatedArchive, notifications };
   } catch (e) {
     localStorage.clear();
     return { lists: DEFAULT_LISTS, tasks: {}, archive: {}, notifications: [] };
   }
 }
 function sanitizeInput(str) {
-  // For production, use sanitize-html:
-  // return sanitizeHtml(str, { allowedTags: [], allowedAttributes: {} });
   return String(str).replace(/[<>&"'`]/g, c => ({
-    "<": "&lt;", ">": "&gt;", "&": "&amp;", "\"": "&quot;", "'": "&#39;", "`": "&#96;"
+    "<": "<",
+    ">": ">",
+    "&": "&",
+    "\"": "\"",
+    "'": "'",
+    "`": "`"
   }[c]));
 }
 function getStorageSize() {
@@ -101,21 +121,20 @@ function getStorageSize() {
   return total;
 }
 function uuid() {
-  // Simple UUID v4
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => {
     const r = Math.random() * 16 | 0, v = c === "x" ? r : (r & 0x3 | 0x8);
     return v.toString(16);
   });
 }
 
-// --- Custom Hook for Efficient Timer Management (reminder state in localStorage) ---
+// --- Custom Hook for Efficient Timer Management ---
 function useTaskTimers(tasks, pushNotification, showBrowserNotification) {
   useEffect(() => {
     let timeoutId = null;
 
     const checkTasks = () => {
       const reminderSent = JSON.parse(localStorage.getItem("reminderSent") || "{}");
-      let nextCheck = 60000; // Default to 1 minute if no due dates
+      let nextCheck = 60000;
 
       Object.keys(tasks).forEach(listId => {
         (tasks[listId] || []).forEach((task) => {
@@ -125,7 +144,6 @@ function useTaskTimers(tasks, pushNotification, showBrowserNotification) {
             const timeLeft = due - now;
             const uniqueKey = `${listId}:${task.id}:${task.dueDate}`;
 
-            // Expired
             if (timeLeft <= 0 && !reminderSent[uniqueKey + ":expired"]) {
               reminderSent[uniqueKey + ":expired"] = true;
               pushNotification({
@@ -137,7 +155,6 @@ function useTaskTimers(tasks, pushNotification, showBrowserNotification) {
               showBrowserNotification("Task Expired", `Task "${task.text}" has expired!`);
             }
 
-            // Reminder at half the remaining time
             if (!reminderSent[uniqueKey + ":reminder"] && timeLeft > 2 * 60 * 1000) {
               const halfTime = timeLeft / 2;
               if (timeLeft <= halfTime + 60000 && timeLeft >= halfTime - 60000) {
@@ -152,9 +169,8 @@ function useTaskTimers(tasks, pushNotification, showBrowserNotification) {
               }
             }
 
-            // Set next check to the smallest timeLeft or 1 minute
             if (timeLeft > 0 && timeLeft < nextCheck) {
-              nextCheck = Math.max(1000, timeLeft); // Minimum 1 second to avoid overload
+              nextCheck = Math.max(1000, timeLeft);
             }
           }
         });
@@ -164,7 +180,7 @@ function useTaskTimers(tasks, pushNotification, showBrowserNotification) {
       timeoutId = setTimeout(checkTasks, nextCheck);
     };
 
-    checkTasks(); // Run immediately on mount or update
+    checkTasks();
 
     return () => {
       if (timeoutId) clearTimeout(timeoutId);
@@ -200,33 +216,22 @@ function useUndoQueue(timeout = UNDO_TIMEOUT) {
 }
 
 const App = () => {
-  const [bgColor, setBgColor] = useState(
-    localStorage.getItem("bgColor") || COLORS[3]
-  );
+  const [bgColor, setBgColor] = useState(localStorage.getItem("bgColor") || COLORS[3]);
   const [loading, setLoading] = useState(true);
-
   const [{ lists, tasks, archive, notifications }, setData] = useState(getInitialData());
-  const [currentList, setCurrentList] = useState(
-    localStorage.getItem("currentList") || (lists[0]?.id || "")
-  );
+  const [currentList, setCurrentList] = useState(localStorage.getItem("currentList") || (lists[0]?.id || ""));
   const [badgeAnim, setBadgeAnim] = useState(false);
   const [showArchive, setShowArchive] = useState(false);
-
   const [newTask, setNewTask] = useState({
     text: "",
     type: "quick",
     dueDate: "",
     subtasks: ""
   });
-
   const [dueDatePrompt, setDueDatePrompt] = useState(false);
-
-  // Undo Queues
   const [undoListQueue, setUndoListQueue] = useState([]);
   const [undoTaskQueue, setUndoTaskQueue] = useState([]);
-
   const [showNotifCenter, setShowNotifCenter] = useState(false);
-
   const [lastNotifView, setLastNotifView] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem("lastNotifView") || "{}");
@@ -234,18 +239,29 @@ const App = () => {
       return {};
     }
   });
-
   const [highlightedTask, setHighlightedTask] = useState(null);
   const [selectedTask, setSelectedTask] = useState(null);
   const taskRefs = useRef({});
-
-  // Pagination for large lists
   const [page, setPage] = useState(0);
+  // Add tasksProgress state to track progress for all tasks
+  const [tasksProgress, setTasksProgress] = useState({});
 
-  // --- Timer Management (single interval) ---
   useTaskTimers(tasks, pushNotification, showBrowserNotification);
 
-  // --- Storage: Save with Error Handling and proactive warning ---
+  useEffect(() => {
+    console.log("Setting loading timeout");
+    const timer = setTimeout(() => {
+      try {
+        setLoading(false);
+        console.log("Loading set to false, currentList:", currentList, "tasks:", tasks);
+      } catch (error) {
+        console.error("Error in loading transition:", error);
+        setLoading(false); // Force transition
+      }
+    }, 800);
+    return () => clearTimeout(timer);
+  }, []);
+
   useEffect(() => {
     try {
       localStorage.setItem("bgColor", bgColor);
@@ -262,7 +278,6 @@ const App = () => {
     }
   }, [bgColor, lists, tasks, archive, currentList, notifications]);
 
-  // --- Accessibility: Focus Trap for Modals (suggest using react-focus-lock for production) ---
   useEffect(() => {
     if (selectedTask) {
       const handleKey = e => {
@@ -278,10 +293,27 @@ const App = () => {
         if (e.key === "Escape") setShowNotifCenter(false);
       };
       window.addEventListener("keydown", handleKey);
+
+      // Update lastNotifView with the latest notification times and save to localStorage
+      const newLastNotifView = { ...lastNotifView };
+      notifications.forEach(n => {
+        const notifTime = new Date(n.time).getTime();
+        if (!newLastNotifView[n.listId] || notifTime > newLastNotifView[n.listId]) {
+          newLastNotifView[n.listId] = notifTime;
+        }
+      });
+      setLastNotifView(newLastNotifView);
+      localStorage.setItem("lastNotifView", JSON.stringify(newLastNotifView));
+
+      // Recalculate unseenCount and update favicon badge
+      const updatedUnseenCount = notifications.filter(
+        n => !newLastNotifView[n.listId] || new Date(n.time).getTime() > newLastNotifView[n.listId]
+      ).length;
+      setFaviconBadge(updatedUnseenCount);
+
       return () => window.removeEventListener("keydown", handleKey);
     }
-  }, [showNotifCenter]);
-
+  }, [showNotifCenter, notifications, lastNotifView]);
   useEffect(() => {
     if ("Notification" in window && Notification.permission === "default") {
       Notification.requestPermission();
@@ -296,12 +328,7 @@ const App = () => {
       if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
     }
   }, [highlightedTask, currentList]);
-  useEffect(() => {
-    const timer = setTimeout(() => setLoading(false), 800);
-    return () => clearTimeout(timer);
-  }, []);
 
-  // --- Notification/Undo/Highlight Logic ---
   const completedCount = (tasks[currentList] || []).filter(t => t.done && !t.archived).length;
   useEffect(() => {
     if (completedCount > 0) {
@@ -311,12 +338,38 @@ const App = () => {
     }
   }, [completedCount]);
 
+  // Real-time progress update for all tasks
+  useEffect(() => {
+    const updateProgress = () => {
+      const newProgress = {};
+      Object.keys(tasks).forEach(listId => {
+        (tasks[listId] || []).forEach((task, idx) => {
+          if (task.dueDate && task.created) {
+            const start = new Date(task.created).getTime();
+            const due = new Date(task.dueDate).getTime();
+            const now = Date.now();
+            const totalDuration = due - start;
+            const elapsed = Math.max(0, Math.min(now - start, totalDuration));
+            const percentage = (elapsed / totalDuration) * 100;
+            newProgress[`${listId}:${idx}`] = percentage > 100 ? 100 : percentage;
+          } else {
+            newProgress[`${listId}:${idx}`] = 0;
+          }
+        });
+      });
+      setTasksProgress(newProgress);
+    };
+
+    updateProgress(); // Initial call
+    const interval = setInterval(updateProgress, 1000); // Update every second for real-time feel
+    return () => clearInterval(interval); // Cleanup on unmount
+  }, [tasks]);
+
   function showBrowserNotification(title, body) {
     if ("Notification" in window && Notification.permission === "granted") {
       try {
         new Notification(title, { body, icon: "/favicon.ico" });
       } catch {
-        // Fallback UI
         setData(prev => ({
           ...prev,
           notifications: [
@@ -331,17 +384,16 @@ const App = () => {
         }));
       }
     } else {
-      // Fallback UI
       setData(prev => ({
         ...prev,
         notifications: [
           {
-            id: Date.now() + Math.random(),
-            type: "fallback",
-            message: `${title}: ${body}`,
-            time: new Date().toISOString()
-          },
-          ...prev.notifications
+          id: Date.now() + Math.random(),
+          type: "fallback",
+          message: `${title}: ${body}`,
+          time: new Date().toISOString()
+        },
+        ...prev.notifications
         ]
       }));
     }
@@ -366,7 +418,6 @@ const App = () => {
     setTimeout(() => setBadgeAnim(false), 700);
   }
 
-  // --- useCallback for handlers to avoid unnecessary re-renders ---
   const addTask = useCallback(() => {
     const sanitizedText = sanitizeInput(newTask.text.trim());
     if (!sanitizedText) return;
@@ -424,60 +475,55 @@ const App = () => {
     });
   }, [currentList]);
 
-  // --- Archive Task with Undo (with unique id) ---
-const archiveTask = useCallback((idx) => {
-  const taskToArchive = (tasks[currentList] || [])[idx];
-  setData(prev => {
-    const updated = [...prev.tasks[currentList]];
-    const [archivedTask] = updated.splice(idx, 1);
-    archivedTask.archived = true;
+  const archiveTask = useCallback((idx) => {
+    const taskToArchive = (tasks[currentList] || [])[idx];
+    setData(prev => {
+      const updated = [...prev.tasks[currentList]];
+      const [archivedTask] = updated.splice(idx, 1);
+      archivedTask.archived = true;
 
-    // Check if this task is already in the undo queue
-    setUndoTaskQueue(prevQueue => {
-      const existing = prevQueue.find(u => u.task.id === archivedTask.id);
-      if (existing) {
-        clearTimeout(existing.timer); // Clear the old timer
-        return prevQueue.map(u => 
-          u.task.id === archivedTask.id ? { ...u, timer: setTimeout(() => {
-            setUndoTaskQueue(q2 => q2.filter(u2 => u2.task.id !== archivedTask.id));
-          }, UNDO_TIMEOUT) } : u
-        );
-      } else {
-        return [
-          ...prevQueue,
-          {
-            task: archivedTask,
-            idx,
-            listId: currentList,
-            timer: setTimeout(() => {
-              setUndoTaskQueue(q2 => q2.filter(u => u.task.id !== archivedTask.id));
-            }, UNDO_TIMEOUT)
-          }
-        ];
-      }
+      setUndoTaskQueue(prevQueue => {
+        const existing = prevQueue.find(u => u.task.id === archivedTask.id);
+        if (existing) {
+          clearTimeout(existing.timer);
+          return prevQueue.map(u => 
+            u.task.id === archivedTask.id ? { ...u, timer: setTimeout(() => {
+              setUndoTaskQueue(q2 => q2.filter(u2 => u2.task.id !== archivedTask.id));
+            }, UNDO_TIMEOUT) } : u
+          );
+        } else {
+          return [
+            ...prevQueue,
+            {
+              task: archivedTask,
+              idx,
+              listId: currentList,
+              timer: setTimeout(() => {
+                setUndoTaskQueue(q2 => q2.filter(u => u.task.id !== archivedTask.id));
+              }, UNDO_TIMEOUT)
+            }
+          ];
+        }
+      });
+
+      return {
+        ...prev,
+        tasks: { ...prev.tasks, [currentList]: updated },
+        archive: {
+          ...prev.archive,
+          [currentList]: [archivedTask, ...(prev.archive[currentList] || [])]
+        }
+      };
     });
+  }, [currentList, tasks]);
 
-    return {
-      ...prev,
-      tasks: { ...prev.tasks, [currentList]: updated },
-      archive: {
-        ...prev.archive,
-        [currentList]: [archivedTask, ...(prev.archive[currentList] || [])] // Prepend instead of append
-      }
-    };
-  });
-}, [currentList, tasks]);
-
-  // --- Undo Archive Task (with unique id) ---
   const undoArchiveTask = useCallback((taskId) => {
     const undoInfo = undoTaskQueue.find(u => u.task.id === taskId);
     if (!undoInfo) return;
     clearTimeout(undoInfo.timer);
     setData(prev => {
       const newArchive = [...(prev.archive[undoInfo.listId] || [])];
-      const taskIdx = newArchive.findIndex(
-        t => t.id === undoInfo.task.id
-      );
+      const taskIdx = newArchive.findIndex(t => t.id === undoInfo.task.id);
       if (taskIdx !== -1) newArchive.splice(taskIdx, 1);
 
       const newTasks = [...(prev.tasks[undoInfo.listId] || [])];
@@ -493,7 +539,6 @@ const archiveTask = useCallback((idx) => {
     setUndoTaskQueue(q => q.filter(u => u.task.id !== taskId));
   }, [undoTaskQueue]);
 
-  // --- Remove Task Permanently ---
   const removeTask = useCallback((idx) => {
     setData(prev => {
       const updated = [...prev.tasks[currentList]];
@@ -505,7 +550,6 @@ const archiveTask = useCallback((idx) => {
     });
   }, [currentList, tasks]);
 
-  // --- List CRUD (with undo queue) ---
   const addList = useCallback(() => {
     let name = prompt(`List name? (max ${MAX_LIST_NAME} characters)`);
     if (!name) return;
@@ -576,645 +620,526 @@ const archiveTask = useCallback((idx) => {
 
   if (loading) return <Preloader />;
 
-  // Pagination logic
   const filteredTasks = (tasks[currentList] || []).filter(t => !t.archived);
   const totalPages = Math.ceil(filteredTasks.length / TASKS_PER_PAGE);
   const pagedTasks = filteredTasks.slice(page * TASKS_PER_PAGE, (page + 1) * TASKS_PER_PAGE);
 
-  // === UI ===
   return (
     <div
       className="min-h-screen transition-colors duration-300 relative px-1"
       style={{ backgroundColor: bgColor }}
     >
-      {/* Color Picker */}
-      <div className="flex justify-center pt-8">
-        {COLORS.map((color) => (
-          <div key={color} className="relative mx-1">
-            <button
-              className={`w-6 h-2 rounded-full`}
-              style={{ backgroundColor: color }}
-              onClick={() => setBgColor(color)}
-              aria-label={`Set background color to ${color}`}
-            ></button>
-            {bgColor === color && (
-              <div className="absolute top-3 left-1/2 transform -translate-x-1/2 text-white">
-                ▾
+      {currentList && tasks[currentList] !== undefined ? (
+        <>
+          <div className="flex justify-center pt-8">
+            {COLORS.map((color) => (
+              <div key={color} className="relative mx-1">
+                <button
+                  className="w-6 h-2 rounded-full"
+                  style={{ backgroundColor: color }}
+                  onClick={() => setBgColor(color)}
+                  aria-label={`Set background color to ${color}`}
+                ></button>
+                {bgColor === color && (
+                  <div className="absolute top-3 left-1/2 transform -translate-x-1/2 text-white">▾</div>
+                )}
               </div>
-            )}
+            ))}
           </div>
-        ))}
-      </div>
 
-      {/* List Tabs */}
-      <div className="flex justify-center mt-4 gap-2 flex-wrap">
-        {lists.map(list => (
-          <button
-            key={list.id}
-            className="px-3 py-1 rounded-full font-semibold transition"
-            title={list.name}
-            style={{
-              background: currentList === list.id ? "#fff" : "rgba(0,0,0,0.3)",
-              color: currentList === list.id ? "#000" : "#fff",
-              boxShadow: currentList === list.id ? "0 1px 4px rgba(0,0,0,0.08)" : undefined,
-              border: "none"
-            }}
-            onClick={() => { setCurrentList(list.id); setPage(0); }}
-            aria-label={`Switch to list ${list.name}`}
-          >
-            {list.name}
-            <Trash2
-              className="inline ml-2 w-4 h-4 text-red-400 hover:text-red-600"
-              onClick={e => {
-                e.stopPropagation();
-                removeList(list.id);
-              }}
-              aria-label={`Delete list ${list.name}`}
-              tabIndex={-1}
-            />
-          </button>
-        ))}
-        <button
-          className="px-2 py-1 rounded-full bg-green-500 text-white flex items-center gap-1"
-          onClick={addList}
-          aria-label="Add new list"
-        >
-          <FolderPlus className="w-4 h-4" /> Add List
-        </button>
-        <button
-          className={`px-2 py-1 rounded-full flex items-center gap-1 ${
-            showArchive ? "bg-yellow-400 text-black" : "bg-black/30 text-white"
-          }`}
-          onClick={() => setShowArchive(a => !a)}
-          aria-label={showArchive ? "Hide Archive" : "Show Archive"}
-        >
-          <FolderOpen className="w-4 h-4" /> {showArchive ? "Hide" : "Show"} Archive
-        </button>
-      </div>
-
-      {/* Undo Snackbar for List */}
-      {undoListQueue.map((undoInfo, idx) => (
-        <div key={undoInfo.list.id} className="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-gray-900 text-white px-6 py-3 rounded-full shadow-lg flex items-center gap-4 z-50 animate-fade-in" role="alert">
-          <span>
-            List <b>{undoInfo.list.name}</b> deleted.
-          </span>
-          <button
-            className="bg-blue-500 hover:bg-blue-700 text-white px-3 py-1 rounded-full font-semibold transition"
-            onClick={() => undoDeleteList(undoInfo.list.id)}
-            aria-label="Undo delete list"
-          >
-            Undo
-          </button>
-        </div>
-      ))}
-
-      {/* Undo Snackbar for Task */}
-{undoTaskQueue.map((undoInfo, idx) => (
-        <div
-          key={undoInfo.task.id}
-          className="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-gray-900 text-white px-6 py-3 rounded-full shadow-lg flex items-center gap-4 z-50 animate-fade-in"
-          role="alert"
-          style={{ bottom: `${4 + idx * 60}px` }} // Stack vertically if multiple
-        >
-          <span>
-            Task <b>{undoInfo.task.text}</b> archived.
-          </span>
-          <button
-            className="bg-blue-500 hover:bg-blue-700 text-white px-3 py-1 rounded-full font-semibold transition"
-            onClick={() => undoArchiveTask(undoInfo.task.id)}
-            aria-label="Undo archive task"
-          >
-            Undo
-          </button>
-        </div>
-      ))}
-
-      {/* Undo Snackbar for List (Persistent across tabs) */}
-      {undoListQueue.map((undoInfo, idx) => (
-        <div
-          key={undoInfo.list.id}
-          className="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-gray-900 text-white px-6 py-3 rounded-full shadow-lg flex items-center gap-4 z-50 animate-fade-in"
-          role="alert"
-          style={{ bottom: `${4 + idx * 60}px` }} // Stack vertically if multiple
-        >
-          <span>
-            List <b>{undoInfo.list.name}</b> deleted.
-          </span>
-          <button
-            className="bg-blue-500 hover:bg-blue-700 text-white px-3 py-1 rounded-full font-semibold transition"
-            onClick={() => undoDeleteList(undoInfo.list.id)}
-            aria-label="Undo delete list"
-          >
-            Undo
-          </button>
-        </div>
-      ))}
-
-      {/* Title and Bell */}
-      <div className="flex items-center justify-center mt-6 relative">
-        <h1 className="text-4xl text-white font-bold">TO DO LIST</h1>
-        <div className="relative ml-4">
-          <button
-            className="focus:outline-none"
-            onClick={() => {
-              setShowNotifCenter(true);
-              const newLastNotifView = { ...lastNotifView };
-              notifications.forEach(n => {
-                const notifTime = new Date(n.time).getTime();
-                if (!newLastNotifView[n.listId] || notifTime > newLastNotifView[n.listId]) {
-                  newLastNotifView[n.listId] = notifTime;
-                }
-              });
-              setLastNotifView(newLastNotifView);
-            }}
-            aria-label="Show notifications"
-          >
-            <Bell
-              className={`w-8 h-8 transition-transform duration-300 ${
-                bgColor === "#fbbf24" ? "text-white" : "text-yellow-400"
-              } ${badgeAnim ? "animate-bell-ring" : ""}`}
-            />
-            {unseenCount > 0 && (
-              <span
-                className={`absolute -top-2 -right-2 bg-red-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center z-10
-                  ${badgeAnim ? "animate-ping-short" : ""}
-                `}
-                aria-label={`${unseenCount} new notifications`}
+          <div className="flex justify-center mt-4 gap-2 flex-wrap">
+            {lists.map(list => (
+              <button
+                key={list.id}
+                className="px-3 py-1 rounded-full font-semibold transition"
+                title={list.name}
+                style={{
+                  background: currentList === list.id ? "#fff" : "rgba(0,0,0,0.3)",
+                  color: currentList === list.id ? "#000" : "#fff",
+                  boxShadow: currentList === list.id ? "0 1px 4px rgba(0,0,0,0.08)" : undefined,
+                  border: "none"
+                }}
+                onClick={() => { setCurrentList(list.id); setPage(0); }}
+                aria-label={`Switch to list ${list.name}`}
               >
-                {unseenCount}
-              </span>
-            )}
-          </button>
-        </div>
-      </div>
-
-      {/* Notification Center Modal */}
-      {showNotifCenter && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" role="dialog" aria-modal="true">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-xs sm:max-w-md mx-2 p-2 sm:p-4 relative overflow-auto">
-            <button
-              className="absolute top-2 right-2 text-gray-500 hover:text-black"
-              onClick={() => setShowNotifCenter(false)}
-              aria-label="Close notifications"
-              style={{ zIndex: 10 }}
-            >
-              <X className="w-6 h-6" />
-            </button>
-            <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
-              <Bell className="w-5 h-5 text-yellow-400" /> Notifications
-            </h2>
-            {notifications.length === 0 && (
-              <div className="text-gray-500 text-center py-8">No notifications yet.</div>
-            )}
-            <ul className="max-h-80 overflow-y-auto space-y-3">
-              {notifications.map((notif, i) => (
-                <li
-                  key={notif.id}
-                  className="border-b pb-2 last:border-b-0 cursor-pointer hover:bg-gray-100 transition rounded"
-                  onClick={() => {
-                    setCurrentList(notif.listId);
-                    setShowNotifCenter(false);
-                    const currentTasks = tasks[notif.listId] || [];
-                    const idx = currentTasks.findIndex(
-                      t => t.text === notif.taskText && t.dueDate === notif.dueDate
-                    );
-                    if (idx !== -1) {
-                      setHighlightedTask(null);
-                      setTimeout(() => {
-                        const el = taskRefs.current[idx];
-                        if (el) {
-                          const isLast = idx >= currentTasks.length - 2;
-                          el.scrollIntoView({
-                            behavior: "smooth",
-                            block: isLast ? "end" : "center"
-                          });
-                          setHighlightedTask({ listId: notif.listId, idx });
-                          setTimeout(() => setHighlightedTask(null), 2000);
-                        } else {
-                          setHighlightedTask({ listId: notif.listId, idx });
-                          setTimeout(() => setHighlightedTask(null), 2000);
-                        }
-                      }, 200);
-                    }
+                {list.name}
+                <Trash2
+                  className="inline ml-2 w-4 h-4 text-red-400 hover:text-red-600"
+                  onClick={e => {
+                    e.stopPropagation();
+                    removeList(list.id);
                   }}
-                  title={
-                    lists.find(l => l.id === notif.listId)
-                      ? `Go to list: ${lists.find(l => l.id === notif.listId).name}`
-                      : "Go to list"
-                  }
-                  tabIndex={0}
-                  aria-label={`Notification: ${notif.message}`}
+                  aria-label={`Delete list ${list.name}`}
+                  tabIndex={-1}
+                />
+              </button>
+            ))}
+            <button
+              className="px-2 py-1 rounded-full bg-green-500 text-white flex items-center gap-1"
+              onClick={addList}
+              aria-label="Add new list"
+            >
+              <FolderPlus className="w-4 h-4" /> Add List
+            </button>
+            <button
+              className={`px-2 py-1 rounded-full flex items-center gap-1 ${
+                showArchive ? "bg-yellow-400 text-black" : "bg-black/30 text-white"
+              }`}
+              onClick={() => setShowArchive(a => !a)}
+              aria-label={showArchive ? "Hide Archive" : "Show Archive"}
+            >
+              <FolderOpen className="w-4 h-4" /> {showArchive ? "Hide" : "Show"} Archive
+            </button>
+          </div>
+
+          {undoTaskQueue.map((undoInfo, idx) => (
+            <div
+              key={undoInfo.task.id}
+              className="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-gray-900 text-white px-6 py-3 rounded-full shadow-lg flex items-center gap-4 z-50 animate-fade-in"
+              role="alert"
+              style={{ bottom: `${4 + idx * 60}px` }}
+            >
+              <span>
+                Task <b>{undoInfo.task.text}</b> archived.
+              </span>
+              <button
+                className="bg-blue-500 hover:bg-blue-700 text-white px-3 py-1 rounded-full font-semibold transition"
+                onClick={() => undoArchiveTask(undoInfo.task.id)}
+                aria-label="Undo archive task"
+              >
+                Undo
+              </button>
+            </div>
+          ))}
+
+          {undoListQueue.map((undoInfo, idx) => (
+            <div
+              key={undoInfo.list.id}
+              className="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-gray-900 text-white px-6 py-3 rounded-full shadow-lg flex items-center gap-4 z-50 animate-fade-in"
+              role="alert"
+              style={{ bottom: `${4 + idx * 60}px` }}
+            >
+              <span>
+                List <b>{undoInfo.list.name}</b> deleted.
+              </span>
+              <button
+                className="bg-blue-500 hover:bg-blue-700 text-white px-3 py-1 rounded-full font-semibold transition"
+                onClick={() => undoDeleteList(undoInfo.list.id)}
+                aria-label="Undo delete list"
+              >
+                Undo
+              </button>
+            </div>
+          ))}
+
+          <div className="flex items-center justify-center mt-6 relative">
+            <h1 className="text-4xl text-white font-bold">TO DO LIST</h1>
+            <div className="relative ml-4">
+              <button
+                className="focus:outline-none"
+                onClick={() => {
+                  setShowNotifCenter(true);
+                  const newLastNotifView = { ...lastNotifView };
+                  notifications.forEach(n => {
+                    const notifTime = new Date(n.time).getTime();
+                    if (!newLastNotifView[n.listId] || notifTime > newLastNotifView[n.listId]) {
+                      newLastNotifView[n.listId] = notifTime;
+                    }
+                  });
+                  setLastNotifView(newLastNotifView);
+                }}
+                aria-label="Show notifications"
+              >
+                <Bell
+                  className={`w-8 h-8 transition-transform duration-300 ${
+                    bgColor === "#fbbf24" ? "text-white" : "text-yellow-400"
+                  } ${badgeAnim ? "animate-bell-ring" : ""}`}
+                />
+                {unseenCount > 0 && (
+                  <span
+                    className={`absolute -top-2 -right-2 bg-red-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center z-10
+                      ${badgeAnim ? "animate-ping-short" : ""}
+                    `}
+                    aria-label={`${unseenCount} new notifications`}
+                  >
+                    {unseenCount}
+                  </span>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {showNotifCenter && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" role="dialog" aria-modal="true">
+              <div className="bg-white rounded-xl shadow-2xl w-full max-w-xs sm:max-w-md mx-2 p-2 sm:p-4 relative overflow-auto">
+                <button
+                  className="absolute top-2 right-2 text-gray-500 hover:text-black"
+                  onClick={() => setShowNotifCenter(false)}
+                  aria-label="Close notifications"
+                  style={{ zIndex: 10 }}
                 >
-                  <div className="flex items-center gap-2">
-                    {notif.type === "reminder" && (
-                      <span className="inline-block w-2 h-2 rounded-full bg-blue-400" title="Reminder"></span>
-                    )}
-                    {notif.type === "expired" && (
-                      <span className="inline-block w-2 h-2 rounded-full bg-red-500" title="Expired"></span>
-                    )}
-                    {notif.type === "completed" && (
-                      <span className="inline-block w-2 h-2 rounded-full bg-green-500" title="Completed"></span>
-                    )}
-                    <span className="text-sm">
-                      {notif.message}
-                      {lists.find(l => l.id === notif.listId) && (
-                        <span className="ml-2 text-xs text-gray-500">
-                          [List: {lists.find(l => l.id === notif.listId).name}]
+                  <X className="w-6 h-6" />
+                </button>
+                <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+                  <Bell className="w-5 h-5 text-yellow-400" /> Notifications
+                </h2>
+                {notifications.length === 0 && (
+                  <div className="text-gray-500 text-center py-8">No notifications yet.</div>
+                )}
+                <ul className="max-h-80 overflow-y-auto space-y-3">
+                  {notifications.map((notif, i) => (
+                    <li
+                      key={notif.id}
+                      className="border-b pb-2 last:border-b-0 cursor-pointer hover:bg-gray-100 transition rounded"
+                      onClick={() => {
+                        setCurrentList(notif.listId);
+                        setShowNotifCenter(false);
+                        const currentTasks = tasks[notif.listId] || [];
+                        const idx = currentTasks.findIndex(
+                          t => t.text === notif.taskText && t.dueDate === notif.dueDate
+                        );
+                        if (idx !== -1) {
+                          setHighlightedTask(null);
+                          setTimeout(() => {
+                            const el = taskRefs.current[idx];
+                            if (el) {
+                              const isLast = idx >= currentTasks.length - 2;
+                              el.scrollIntoView({
+                                behavior: "smooth",
+                                block: isLast ? "end" : "center"
+                              });
+                              setHighlightedTask({ listId: notif.listId, idx });
+                              setTimeout(() => setHighlightedTask(null), 2000);
+                            } else {
+                              setHighlightedTask({ listId: notif.listId, idx });
+                              setTimeout(() => setHighlightedTask(null), 2000);
+                            }
+                          }, 200);
+                        }
+                      }}
+                      title={
+                        lists.find(l => l.id === notif.listId)
+                          ? `Go to list: ${lists.find(l => l.id === notif.listId).name}`
+                          : "Go to list"
+                      }
+                      tabIndex={0}
+                      aria-label={`Notification: ${notif.message}`}
+                    >
+                      <div className="flex items-center gap-2">
+                        {notif.type === "reminder" && (
+                          <span className="inline-block w-2 h-2 rounded-full bg-blue-400" title="Reminder"></span>
+                        )}
+                        {notif.type === "expired" && (
+                          <span className="inline-block w-2 h-2 rounded-full bg-red-500" title="Expired"></span>
+                        )}
+                        {notif.type === "completed" && (
+                          <span className="inline-block w-2 h-2 rounded-full bg-green-500" title="Completed"></span>
+                        )}
+                        <span className="text-sm">
+                          {notif.message}
+                          {lists.find(l => l.id === notif.listId) && (
+                            <span className="ml-2 text-xs text-gray-500">
+                              [List: {lists.find(l => l.id === notif.listId).name}]
+                            </span>
+                          )}
                         </span>
+                      </div>
+                      <div className="text-xs text-gray-400 mt-1">
+                        {new Date(notif.time).toLocaleString()}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+                <button
+                  className="mt-4 w-full bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-full py-2 font-semibold"
+                  onClick={() =>
+                    setData(prev => ({ ...prev, notifications: [] }))
+                  }
+                  aria-label="Clear all notifications"
+                >
+                  Clear All Notifications
+                </button>
+              </div>
+            </div>
+          )}
+
+          {selectedTask && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" role="dialog" aria-modal="true">
+              <div className="bg-white rounded-xl shadow-2xl w-full max-w-xs sm:max-w-md mx-2 p-4 relative">
+                <button
+                  className="absolute top-2 right-2 text-gray-500 hover:text-black"
+                  onClick={() => setSelectedTask(null)}
+                  aria-label="Close task details"
+                  style={{ zIndex: 10 }}
+                >
+                  <X className="w-6 h-6" />
+                </button>
+                <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+                  <span className="inline-block w-2 h-2 rounded-full bg-blue-400"></span>
+                  Task Details
+                </h2>
+                <div className="mb-2">
+                  <span className="font-semibold">Text:</span>
+                  <div className="break-words">{selectedTask.text}</div>
+                </div>
+                <div className="mb-2">
+                  <span className="font-semibold">Type:</span> {selectedTask.type}
+                </div>
+                {selectedTask.dueDate && (
+                  <div className="mb-2">
+                    <span className="font-semibold">Due:</span> {new Date(selectedTask.dueDate).toLocaleString()}
+                  </div>
+                )}
+                {selectedTask.subtasks && (
+                  <div className="mb-2">
+                    <span className="font-semibold">Subtasks:</span> {selectedTask.subtasks}
+                  </div>
+                )}
+                <div className="mb-2">
+                  <span className="font-semibold">Status:</span>{" "}
+                  {selectedTask.done ? "Completed" : isTaskExpired(selectedTask) ? "Expired" : "Active"}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {!showArchive && (
+            <div className="flex flex-col items-center gap-2 w-full mt-2">
+              {lists.length === 0 ? (
+                <div
+                  className="w-full max-w-lg rounded-2xl px-4 py-4 text-center font-semibold shadow-md text-base"
+                  style={{
+                    background: "#fff3",
+                    backdropFilter: "blur(6px)",
+                    border: "1.5px solid #fff5",
+                    color: "#e5e7eb",
+                    textShadow: "0 1px 4px #000a"
+                  }}
+                >
+                  Add a new list first to start adding tasks.
+                </div>
+              ) : (
+                <form
+                  className="w-full max-w-lg rounded-2xl px-3 py-2 flex flex-wrap gap-2 items-center shadow-lg bg-white/70 backdrop-blur-md border border-gray-200"
+                  style={{ minHeight: 56 }}
+                  onSubmit={e => {
+                    e.preventDefault();
+                    addTask();
+                  }}
+                >
+                  <select
+                    className="px-2 py-2 rounded-lg text-xs font-semibold bg-white text-gray-800 flex-shrink-0 border border-gray-200 focus:ring-2 focus:ring-offset-2 focus:ring-black/20"
+                    value={newTask.type}
+                    onChange={e => setNewTask(nt => ({ ...nt, type: e.target.value }))}
+                    aria-label="Task type"
+                  >
+                    {TASK_TYPES.map(t => (
+                      <option key={t.value} value={t.value}>{t.label}</option>
+                    ))}
+                  </select>
+                  <input
+                    type="text"
+                    value={newTask.text}
+                    placeholder="Enter your task here..."
+                    className="flex-grow min-w-[120px] px-3 py-2 text-sm md:text-base bg-white text-gray-900 outline-none rounded-lg placeholder-gray-500 border border-gray-200 focus:ring-2 focus:ring-offset-2 focus:ring-black/20 transition"
+                    onChange={e => setNewTask(nt => ({ ...nt, text: e.target.value }))}
+                    maxLength={100}
+                    required
+                    aria-label="Task text"
+                  />
+                  <div className="flex flex-col relative">
+                    <button
+                      type="button"
+                      className="flex items-center px-3 py-2 h-10 rounded-lg bg-white border border-gray-200 text-gray-700 text-base font-medium shadow-sm hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-400 transition"
+                      onClick={() => document.getElementById('dueDateInput').showPicker && document.getElementById('dueDateInput').showPicker()}
+                      style={{ minWidth: 180, justifyContent: "flex-start" }}
+                      aria-label="Pick due date"
+                    >
+                      <svg className="w-5 h-5 mr-2 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                        <rect x="3" y="4" width="18" height="18" rx="4" stroke="currentColor" strokeWidth="2" fill="none"/>
+                        <path d="M16 2v4M8 2v4M3 10h18" stroke="currentColor" strokeWidth="2"/>
+                      </svg>
+                      {newTask.dueDate
+                        ? new Date(newTask.dueDate).toLocaleString()
+                        : <span className="text-gray-400">Pick due date</span>
+                      }
+                    </button>
+                    <input
+                      id="dueDateInput"
+                      type="datetime-local"
+                      className="hidden"
+                      value={newTask.dueDate}
+                      onChange={e => setNewTask(nt => ({ ...nt, dueDate: e.target.value }))}
+                    />
+                    {dueDatePrompt && (
+                      <div className="absolute left-0 top-full mt-1 bg-white border border-yellow-400 rounded shadow px-3 py-2 flex items-center text-yellow-700 text-sm z-50">
+                        <svg className="w-5 h-5 mr-2 text-yellow-500" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        Please fill out this field.
+                      </div>
+                    )}
+                  </div>
+                  {newTask.type === "longterm" && (
+                    <input
+                      type="text"
+                      className="px-2 py-2 rounded-lg text-xs text-gray-900 min-w-[120px] w-auto flex-shrink-0 border border-gray-200 bg-white focus:ring-2 focus:ring-offset-2 focus:ring-black/20"
+                      placeholder="Subtasks (comma separated)"
+                      value={newTask.subtasks}
+                      onChange={e => setNewTask(nt => ({ ...nt, subtasks: e.target.value }))}
+                      maxLength={100}
+                      aria-label="Subtasks"
+                    />
+                  )}
+                  <button
+                    type="submit"
+                    className="w-10 h-10 flex items-center justify-center rounded-full bg-green-500 hover:bg-green-600 text-white shadow-lg transition"
+                    aria-label="Add task"
+                  >
+                    <Plus className="w-5 h-5" />
+                  </button>
+                </form>
+              )}
+            </div>
+          )}
+
+          {!showArchive && (
+            <div className="flex flex-col items-center gap-3 w-full px-1 sm:px-2 mt-4">
+              {pagedTasks.length === 0 && (
+                <div className="text-white opacity-60 mt-4">No tasks yet. Add one above!</div>
+              )}
+              {pagedTasks.map((task, index) => (
+                <TaskItem
+                  key={task.id || task.created || index}
+                  task={task}
+                  index={index}
+                  globalIdx={page * TASKS_PER_PAGE + index}
+                  toggleDone={toggleDone}
+                  archiveTask={archiveTask}
+                  removeTask={removeTask}
+                  isHighlighted={highlightedTask && highlightedTask.listId === currentList && highlightedTask.idx === page * TASKS_PER_PAGE + index}
+                  taskRefs={taskRefs}
+                  setSelectedTask={setSelectedTask}
+                  progress={tasksProgress[`${currentList}:${page * TASKS_PER_PAGE + index}`] || 0}
+                  isDone={task.done} // Pass done state as prop
+                />
+              ))}
+              {totalPages > 1 && (
+                <div className="flex gap-2 mt-2">
+                  <button
+                    className="px-3 py-1 rounded bg-gray-200 text-gray-700"
+                    disabled={page === 0}
+                    onClick={() => setPage(p => Math.max(0, p - 1))}
+                  >
+                    Prev
+                  </button>
+                  <span className="text-white">{page + 1} / {totalPages}</span>
+                  <button
+                    className="px-3 py-1 rounded bg-gray-200 text-gray-700"
+                    disabled={page === totalPages - 1}
+                    onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+                  >
+                    Next
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {showArchive && (
+            <div className="flex flex-col items-center gap-3 w-full px-1 sm:px-2 mt-4">
+              <div className="text-white text-lg font-semibold mb-2">Archived Tasks</div>
+              {(archive[currentList] || []).length === 0 && (
+                <div className="text-white opacity-60">No archived tasks.</div>
+              )}
+              {(archive[currentList] || []).map((task, idx) => {
+                const completed = task.done;
+                const expired = !task.done;
+                let bg, border, text;
+                if (completed) {
+                  bg = "bg-green-100";
+                  border = "border-green-400";
+                  text = "text-green-700";
+                } else {
+                  bg = "bg-red-100";
+                  border = "border-red-400";
+                  text = "text-red-700";
+                }
+                return (
+                  <div
+                    key={task.id || task.created || idx}
+                    className={`flex flex-nowrap items-center rounded-full px-2 py-1 w-11/12 md:w-1/2 shadow-md overflow-x-auto ${bg} ${border}`}
+                    style={{ minHeight: "48px" }}
+                  >
+                    <span className={`font-bold mr-2 text-sm md:text-base flex-shrink-0 ${text}`}>{idx + 1})</span>
+                    <span className={`flex-grow min-w-0 pr-2 text-sm md:text-base truncate ${text}`}>
+                      {task.text}
+                    </span>
+                    {task.dueDate && (
+                      <span className="ml-2 text-xs text-gray-700 flex-shrink-0">
+                        {new Date(task.dueDate).toLocaleString()}
+                      </span>
+                    )}
+                    {task.type === "longterm" && task.subtasks && (
+                      <span className="ml-2 text-xs text-gray-500 flex-shrink-0">
+                        [{task.subtasks}]
+                      </span>
+                    )}
+                    <span
+                      className={`ml-2 w-7 h-7 flex items-center justify-center rounded-full border-2 flex-shrink-0
+                        ${
+                          completed
+                            ? "bg-green-500 border-green-500 text-white"
+                            : "bg-red-300 border-red-400 text-white"
+                        }
+                      `}
+                      title={completed ? "Completed" : "Failed"}
+                    >
+                      {completed ? (
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                      ) : (
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
                       )}
                     </span>
                   </div>
-                  <div className="text-xs text-gray-400 mt-1">
-                    {new Date(notif.time).toLocaleString()}
-                  </div>
-                </li>
-              ))}
-            </ul>
-            <button
-              className="mt-4 w-full bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-full py-2 font-semibold"
-              onClick={() =>
-                setData(prev => ({ ...prev, notifications: [] }))
-              }
-              aria-label="Clear all notifications"
-            >
-              Clear All Notifications
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Task Details Modal */}
-      {selectedTask && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" role="dialog" aria-modal="true">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-xs sm:max-w-md mx-2 p-4 relative">
-            <button
-              className="absolute top-2 right-2 text-gray-500 hover:text-black"
-              onClick={() => setSelectedTask(null)}
-              aria-label="Close task details"
-              style={{ zIndex: 10 }}
-            >
-              <X className="w-6 h-6" />
-            </button>
-            <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
-              <span className="inline-block w-2 h-2 rounded-full bg-blue-400"></span>
-              Task Details
-            </h2>
-            <div className="mb-2">
-              <span className="font-semibold">Text:</span>
-              <div className="break-words">{selectedTask.text}</div>
-            </div>
-            <div className="mb-2">
-              <span className="font-semibold">Type:</span> {selectedTask.type}
-            </div>
-            {selectedTask.dueDate && (
-              <div className="mb-2">
-                <span className="font-semibold">Due:</span> {new Date(selectedTask.dueDate).toLocaleString()}
-              </div>
-            )}
-            {selectedTask.subtasks && (
-              <div className="mb-2">
-                <span className="font-semibold">Subtasks:</span> {selectedTask.subtasks}
-              </div>
-            )}
-            <div className="mb-2">
-              <span className="font-semibold">Status:</span>{" "}
-              {selectedTask.done ? "Completed" : isTaskExpired(selectedTask) ? "Expired" : "Active"}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Add Task */}
-      {!showArchive && (
-        <div className="flex flex-col items-center gap-2 w-full mt-2">
-          {lists.length === 0 ? (
-            <div
-              className="w-full max-w-lg rounded-2xl px-4 py-4 text-center font-semibold shadow-md text-base"
-              style={{
-                background: "#fff3",
-                backdropFilter: "blur(6px)",
-                border: "1.5px solid #fff5",
-                color: "#e5e7eb",
-                textShadow: "0 1px 4px #000a"
-              }}
-            >
-              Add a new list first to start adding tasks.
-            </div>
-          ) : (
-            <form
-              className="w-full max-w-lg rounded-2xl px-3 py-2 flex flex-wrap gap-2 items-center shadow-lg bg-white/70 backdrop-blur-md border border-gray-200"
-              style={{
-                minHeight: 56
-              }}
-              onSubmit={e => {
-                e.preventDefault();
-                addTask();
-              }}
-            >
-              <select
-                className="px-2 py-2 rounded-lg text-xs font-semibold bg-white text-gray-800 flex-shrink-0 border border-gray-200 focus:ring-2 focus:ring-offset-2 focus:ring-black/20"
-                value={newTask.type}
-                onChange={e => setNewTask(nt => ({ ...nt, type: e.target.value }))}
-                aria-label="Task type"
-              >
-                {TASK_TYPES.map(t => (
-                  <option key={t.value} value={t.value}>{t.label}</option>
-                ))}
-              </select>
-              <input
-                type="text"
-                value={newTask.text}
-                placeholder="Enter your task here..."
-                className="flex-grow min-w-[120px] px-3 py-2 text-sm md:text-base bg-white text-gray-900 outline-none rounded-lg placeholder-gray-500 border border-gray-200 focus:ring-2 focus:ring-offset-2 focus:ring-black/20 transition"
-                onChange={e => setNewTask(nt => ({ ...nt, text: e.target.value }))}
-                maxLength={100}
-                required
-                aria-label="Task text"
-              />
-              <div className="flex flex-col relative">
+                );
+              })}
+              {(archive[currentList] || []).length > 0 && (
                 <button
-                  type="button"
-                  className="flex items-center px-3 py-2 h-10 rounded-lg bg-white border border-gray-200 text-gray-700 text-base font-medium shadow-sm hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-400 transition"
-                  onClick={() => document.getElementById('dueDateInput').showPicker && document.getElementById('dueDateInput').showPicker()}
-                  style={{ minWidth: 180, justifyContent: "flex-start" }}
-                  aria-label="Pick due date"
+                  className="mt-4 px-6 py-2 rounded-full bg-red-500 hover:bg-red-700 text-white font-semibold shadow transition"
+                  onClick={() => {
+                    if (
+                      window.confirm(
+                        "Are you sure you want to permanently delete all archived tasks in this list? This cannot be undone."
+                      )
+                    ) {
+                      setData(prev => ({
+                        ...prev,
+                        archive: { ...prev.archive, [currentList]: [] }
+                      }));
+                    }
+                  }}
+                  aria-label="Delete all archived tasks"
                 >
-                  <svg className="w-5 h-5 mr-2 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                    <rect x="3" y="4" width="18" height="18" rx="4" stroke="currentColor" strokeWidth="2" fill="none"/>
-                    <path d="M16 2v4M8 2v4M3 10h18" stroke="currentColor" strokeWidth="2"/>
-                  </svg>
-                  {newTask.dueDate
-                    ? new Date(newTask.dueDate).toLocaleString()
-                    : <span className="text-gray-400">Pick due date</span>
-                  }
+                  Delete All Archived Tasks
                 </button>
-                <input
-                  id="dueDateInput"
-                  type="datetime-local"
-                  className="hidden"
-                  value={newTask.dueDate}
-                  onChange={e => setNewTask(nt => ({ ...nt, dueDate: e.target.value }))}
-                />
-                {dueDatePrompt && (
-                  <div className="absolute left-0 top-full mt-1 bg-white border border-yellow-400 rounded shadow px-3 py-2 flex items-center text-yellow-700 text-sm z-50">
-                    <svg className="w-5 h-5 mr-2 text-yellow-500" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    Please fill out this field.
-                  </div>
-                )}
-              </div>
-              {newTask.type === "longterm" && (
-                <input
-                  type="text"
-                  className="px-2 py-2 rounded-lg text-xs text-gray-900 min-w-[120px] w-auto flex-shrink-0 border border-gray-200 bg-white focus:ring-2 focus:ring-offset-2 focus:ring-black/20"
-                  placeholder="Subtasks (comma separated)"
-                  value={newTask.subtasks}
-                  onChange={e => setNewTask(nt => ({ ...nt, subtasks: e.target.value }))}
-                  maxLength={100}
-                  aria-label="Subtasks"
-                />
               )}
-              <button
-                type="submit"
-                className="w-10 h-10 flex items-center justify-center rounded-full bg-green-500 hover:bg-green-600 text-white shadow-lg transition"
-                aria-label="Add task"
-              >
-                <Plus className="w-5 h-5" />
-              </button>
-            </form>
-          )}
-        </div>
-      )}
-
-      {/* Task List with Pagination */}
-      {!showArchive && (
-        <div className="flex flex-col items-center gap-3 w-full px-1 sm:px-2 mt-4">
-          {pagedTasks.length === 0 && (
-            <div className="text-white opacity-60 mt-4">No tasks yet. Add one above!</div>
-          )}
-          {pagedTasks.map((task, index) => {
-            const globalIdx = page * TASKS_PER_PAGE + index;
-            const expired = isTaskExpired(task);
-            const completed = task.done;
-            let bg = "bg-white";
-            let border = "border-2 border-gray-300";
-            let text = "text-black";
-            if (completed) {
-              bg = "bg-green-100";
-              border = "border-green-400";
-              text = "text-green-700";
-            } else if (expired) {
-              bg = "bg-red-100";
-              border = "border-red-400";
-              text = "text-red-700";
-            } else if (task.dueDate) {
-              bg = "bg-yellow-100";
-              border = "border-yellow-400";
-              text = "text-yellow-700";
-            }
-            const isHighlighted = highlightedTask &&
-              highlightedTask.listId === currentList &&
-              highlightedTask.idx === globalIdx;
-
-            return (
-              <div
-                key={task.id || task.created || globalIdx}
-                ref={el => { if (isHighlighted) taskRefs.current[globalIdx] = el; }}
-                className={`flex flex-nowrap items-center rounded-full px-2 py-1 w-11/12 md:w-1/2 shadow-md overflow-x-auto ${bg} ${border} ${isHighlighted ? "z-20 highlight-glow" : ""}`}
-                style={{ minHeight: "48px", transition: "box-shadow 0.3s, ring 0.3s" }}
-                onClick={() => setSelectedTask(task)}
-                tabIndex={0}
-                role="button"
-                aria-label={`Show details for task ${task.text}`}
-              >
-                <span className={`font-bold mr-2 text-sm md:text-base flex-shrink-0 ${text}`}>{globalIdx + 1})</span>
-                <span className={`flex-grow min-w-0 pr-2 text-sm md:text-base truncate ${text}`}>
-                  {task.text}
-                </span>
-                {task.dueDate && (
-                  <span className="ml-2 text-xs text-gray-700 flex-shrink-0">
-                    {new Date(task.dueDate).toLocaleString()}
-                  </span>
-                )}
-                {task.type === "longterm" && task.subtasks && (
-                  <span className="ml-2 text-xs text-gray-500 flex-shrink-0">
-                    [{task.subtasks}]
-                  </span>
-                )}
-                <button
-                  className={`ml-2 w-7 h-7 flex items-center justify-center rounded-full transition-colors duration-200 ${
-                    completed
-                      ? "bg-green-500 border-green-500 text-white"
-                      : expired
-                      ? "bg-red-300 border-red-400 text-white cursor-not-allowed"
-                      : "bg-white border-gray-300 text-gray-700"
-                  } border-2 flex-shrink-0`}
-                  onClick={e => {
-                    e.stopPropagation();
-                    !expired && !completed && toggleDone(globalIdx);
-                  }}
-                  aria-label="Mark as done"
-                  disabled={completed || expired}
-                  title={
-                    completed
-                      ? "Completed"
-                      : expired
-                      ? "Expired"
-                      : "Mark as done"
-                  }
-                >
-                  {completed ? (
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                    </svg>
-                  ) : expired ? (
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  ) : null}
-                </button>
-                <button
-                  className="ml-2 w-7 h-7 flex items-center justify-center rounded-full bg-gray-200 text-gray-600 hover:bg-red-200 hover:text-red-600 transition flex-shrink-0"
-                  onClick={e => {
-                    e.stopPropagation();
-                    if (window.confirm("Are you sure you want to archive this task?")) {
-                      archiveTask(globalIdx);
-                    }
-                  }}
-                  aria-label="Archive task"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-                <button
-                  className="ml-2 w-7 h-7 flex items-center justify-center rounded-full bg-gray-200 text-gray-600 hover:bg-black hover:text-white transition flex-shrink-0"
-                  onClick={e => {
-                    e.stopPropagation();
-                    if (window.confirm("Are you sure you want to permanently delete this task? This cannot be undone.")) {
-                      removeTask(globalIdx);
-                    }
-                  }}
-                  aria-label="Delete task"
-                  title="Delete task permanently"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            );
-          })}
-          {totalPages > 1 && (
-            <div className="flex gap-2 mt-2">
-              <button
-                className="px-3 py-1 rounded bg-gray-200 text-gray-700"
-                disabled={page === 0}
-                onClick={() => setPage(p => Math.max(0, p - 1))}
-              >
-                Prev
-              </button>
-              <span className="text-white">{page + 1} / {totalPages}</span>
-              <button
-                className="px-3 py-1 rounded bg-gray-200 text-gray-700"
-                disabled={page === totalPages - 1}
-                onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
-              >
-                Next
-              </button>
             </div>
           )}
-        </div>
-      )}
 
-      {/* Archive/History */}
-      {showArchive && (
-        <div className="flex flex-col items-center gap-3 w-full px-1 sm:px-2 mt-4">
-          <div className="text-white text-lg font-semibold mb-2">Archived Tasks</div>
-          {(archive[currentList] || []).length === 0 && (
-            <div className="text-white opacity-60">No archived tasks.</div>
-          )}
-          {(archive[currentList] || []).map((task, idx) => {
-            const completed = task.done;
-            const expired = !task.done;
-            let bg, border, text;
-            if (completed) {
-              bg = "bg-green-100";
-              border = "border-green-400";
-              text = "text-green-700";
-            } else {
-              bg = "bg-red-100";
-              border = "border-red-400";
-              text = "text-red-700";
-            }
-            return (
-              <div
-                key={task.id || task.created || idx}
-                className={`flex flex-nowrap items-center rounded-full px-2 py-1 w-11/12 md:w-1/2 shadow-md overflow-x-auto ${bg} ${border}`}
-                style={{ minHeight: "48px" }}
-              >
-                <span className={`font-bold mr-2 text-sm md:text-base flex-shrink-0 ${text}`}>{idx + 1})</span>
-                <span className={`flex-grow min-w-0 pr-2 text-sm md:text-base truncate ${text}`}>
-                  {task.text}
-                </span>
-                {task.dueDate && (
-                  <span className="ml-2 text-xs text-gray-700 flex-shrink-0">
-                    {new Date(task.dueDate).toLocaleString()}
-                  </span>
-                )}
-                {task.type === "longterm" && task.subtasks && (
-                  <span className="ml-2 text-xs text-gray-500 flex-shrink-0">
-                    [{task.subtasks}]
-                  </span>
-                )}
-                <span
-                  className={`ml-2 w-7 h-7 flex items-center justify-center rounded-full border-2 flex-shrink-0
-                    ${
-                      completed
-                        ? "bg-green-500 border-green-500 text-white"
-                        : "bg-red-300 border-red-400 text-white"
-                    }
-                  `}
-                  title={completed ? "Completed" : "Failed"}
-                >
-                  {completed ? (
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                    </svg>
-                  ) : (
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  )}
-                </span>
-              </div>
-            );
-          })}
-          {(archive[currentList] || []).length > 0 && (
-            <button
-              className="mt-4 px-6 py-2 rounded-full bg-red-500 hover:bg-red-700 text-white font-semibold shadow transition"
-              onClick={() => {
-                if (
-                  window.confirm(
-                    "Are you sure you want to permanently delete all archived tasks in this list? This cannot be undone."
-                  )
-                ) {
-                  setData(prev => ({
-                    ...prev,
-                    archive: { ...prev.archive, [currentList]: [] }
-                  }));
-                }
-              }}
-              aria-label="Delete all archived tasks"
-            >
-              Delete All Archived Tasks
-            </button>
-          )}
-        </div>
+          <footer className="text-white text-center mt-10 text-sm">
+            <p>Developed by VectorMedia</p>
+            <p className="opacity-70">©{new Date().getFullYear()} - All rights reserved</p>
+            <p className="opacity-70">V1.2</p>
+          </footer>
+        </>
+      ) : (
+        <div className="text-white">Initializing lists and tasks...</div>
       )}
-
-      <footer className="text-white text-center mt-10 text-sm">
-        <p>Developed by VectorMedia</p>
-        <p className="opacity-70">©{new Date().getFullYear()} - All rights reserved</p>
-        <p className="opacity-70">V1.2</p>
-      </footer>
     </div>
   );
 };
