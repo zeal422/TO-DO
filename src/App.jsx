@@ -798,29 +798,29 @@ const App = () => {
                       key={notif.id}
                       className="border-b pb-2 last:border-b-0 cursor-pointer hover:bg-gray-100 transition rounded"
                       onClick={() => {
-                        setCurrentList(notif.listId);
-                        setShowNotifCenter(false);
-                        const currentTasks = tasks[notif.listId] || [];
-                        const idx = currentTasks.findIndex(
-                          t => t.text === notif.taskText && t.dueDate === notif.dueDate
-                        );
-                        if (idx !== -1) {
-                          setHighlightedTask(null);
-                          setTimeout(() => {
-                            const el = taskRefs.current[idx];
-                            if (el) {
-                              const isLast = idx >= currentTasks.length - 2;
-                              el.scrollIntoView({
-                                behavior: "smooth",
-                                block: isLast ? "end" : "center"
-                              });
-                              setHighlightedTask({ listId: notif.listId, idx });
+                        if (tasks[notif.listId]) {
+                          setCurrentList(notif.listId);
+                          setShowNotifCenter(false);
+                          const currentTasks = tasks[notif.listId] || [];
+                          const idx = currentTasks.findIndex(
+                            t => t.text === notif.taskText && t.dueDate === notif.dueDate
+                          );
+                          if (idx !== -1) {
+                            setHighlightedTask({ listId: notif.listId, idx });
+                            setTimeout(() => {
+                              const el = taskRefs.current[idx];
+                              if (el) {
+                                el.scrollIntoView({ behavior: "smooth", block: "center" });
+                              } else {
+                                console.warn("Task ref not found for index:", idx);
+                              }
                               setTimeout(() => setHighlightedTask(null), 2000);
-                            } else {
-                              setHighlightedTask({ listId: notif.listId, idx });
-                              setTimeout(() => setHighlightedTask(null), 2000);
-                            }
-                          }, 200);
+                            }, 200);
+                          } else {
+                            console.warn("Task not found for notification:", notif);
+                          }
+                        } else {
+                          console.error("List not found for notification listId:", notif.listId);
                         }
                       }}
                       title={
