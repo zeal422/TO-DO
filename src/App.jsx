@@ -74,36 +74,32 @@ function setFaviconBadge(count) {
   }
 }
 function getInitialData() {
+  let lists, tasks, archive, notifications;
   try {
-    const lists = JSON.parse(localStorage.getItem("lists")) || DEFAULT_LISTS;
-    let tasks = JSON.parse(localStorage.getItem("tasks")) || {};
-    const archive = JSON.parse(localStorage.getItem("archive")) || {};
-    const notifications = JSON.parse(localStorage.getItem("notifications")) || [];
+    lists = JSON.parse(localStorage.getItem("lists")) || DEFAULT_LISTS;
+    tasks = JSON.parse(localStorage.getItem("tasks")) || {};
+    archive = JSON.parse(localStorage.getItem("archive")) || {};
+    notifications = JSON.parse(localStorage.getItem("notifications")) || [];
 
-    // Create a new tasks object to avoid mutating the parsed object directly
     const initializedTasks = { ...tasks };
     lists.forEach(list => {
       if (!initializedTasks[list.id]) initializedTasks[list.id] = [];
     });
+    tasks = initializedTasks;
 
-    // Save the initialized tasks back to localStorage to ensure persistence
-    localStorage.setItem("tasks", JSON.stringify(initializedTasks));
-
-    return { lists, tasks: initializedTasks, archive, notifications };
+    localStorage.setItem("tasks", JSON.stringify(tasks));
   } catch (e) {
-    console.error("Failed to parse localStorage:", e);
-    localStorage.clear();
-    const defaultTasks = {};
-    const defaultArchive = {};
+    console.warn("localStorage unavailable, using defaults:", e);
+    lists = DEFAULT_LISTS;
+    tasks = {};
+    archive = {};
+    notifications = [];
     DEFAULT_LISTS.forEach(list => {
-      defaultTasks[list.id] = [];
-      defaultArchive[list.id] = [];
+      tasks[list.id] = [];
+      archive[list.id] = [];
     });
-    localStorage.setItem("lists", JSON.stringify(DEFAULT_LISTS));
-    localStorage.setItem("tasks", JSON.stringify(defaultTasks));
-    localStorage.setItem("archive", JSON.stringify(defaultArchive));
-    return { lists: DEFAULT_LISTS, tasks: defaultTasks, archive: defaultArchive, notifications: [] };
   }
+  return { lists, tasks, archive, notifications };
 }
 function sanitizeInput(str) {
   return String(str).replace(/[<>&"'`]/g, c => ({
@@ -128,67 +124,6 @@ function uuid() {
     const r = Math.random() * 16 | 0, v = c === "x" ? r : (r & 0x3 | 0x8);
     return v.toString(16);
   });
-}
-
-// --- Custom Hook for Efficient Timer Management ---
-function useTaskTimers(tasks, pushNotification, showBrowserNotification) {
-  useEffect(() => {
-    let timeoutId = null;
-
-    const checkTasks = () => {
-      const reminderSent = JSON.parse(localStorage.getItem("reminderSent") || "{}");
-      let nextCheck = 60000;
-
-      Object.keys(tasks).forEach(listId => {
-        (tasks[listId] || []).forEach((task) => {
-          if (task.dueDate && !task.done && !task.archived) {
-            const due = new Date(task.dueDate).getTime();
-            const now = Date.now();
-            const timeLeft = due - now;
-            const uniqueKey = `${listId}:${task.id}:${task.dueDate}`;
-
-            if (timeLeft <= 0 && !reminderSent[uniqueKey + ":expired"]) {
-              reminderSent[uniqueKey + ":expired"] = true;
-              pushNotification({
-                type: "expired",
-                message: `Task "${task.text}" has expired!`,
-                task,
-                list: listId
-              });
-              showBrowserNotification("Task Expired", `Task "${task.text}" has expired!`);
-            }
-
-            if (!reminderSent[uniqueKey + ":reminder"] && timeLeft > 2 * 60 * 1000) {
-              const halfTime = timeLeft / 2;
-              if (timeLeft <= halfTime + 60000 && timeLeft >= halfTime - 60000) {
-                reminderSent[uniqueKey + ":reminder"] = true;
-                pushNotification({
-                  type: "reminder",
-                  message: `Task "${task.text}" is due in ${formatDuration(timeLeft)}!`,
-                  task,
-                  list: listId
-                });
-                showBrowserNotification("Task Reminder", `Task "${task.text}" is due in ${formatDuration(timeLeft)}!`);
-              }
-            }
-
-            if (timeLeft > 0 && timeLeft < nextCheck) {
-              nextCheck = Math.max(1000, timeLeft);
-            }
-          }
-        });
-      });
-
-      localStorage.setItem("reminderSent", JSON.stringify(reminderSent));
-      timeoutId = setTimeout(checkTasks, nextCheck);
-    };
-
-    checkTasks();
-
-    return () => {
-      if (timeoutId) clearTimeout(timeoutId);
-    };
-  }, [tasks, pushNotification, showBrowserNotification]);
 }
 
 // --- Undo Queue for Robust Undo ---
@@ -246,17 +181,14 @@ const App = () => {
   const [selectedTask, setSelectedTask] = useState(null);
   const taskRefs = useRef({});
   const [page, setPage] = useState(0);
-  // Add tasksProgress state to track progress for all tasks
   const [tasksProgress, setTasksProgress] = useState({});
 
-  useTaskTimers(tasks, pushNotification, showBrowserNotification);
-
   useEffect(() => {
-    console.log("Setting loading timeout");
+    console.log("Setting loading timeout, localStorage available:", typeof localStorage !== 'undefined');
     const timer = setTimeout(() => {
       try {
         setLoading(false);
-        console.log("Loading set to false, currentList:", currentList, "tasks:", tasks);
+        console.log("Loading set to false, currentList:", currentList, "tasks:", tasks, "tasks[personal]:", tasks.personal);
       } catch (error) {
         console.error("Error in loading transition:", error);
         setLoading(false); // Force transition
@@ -264,6 +196,66 @@ const App = () => {
     }, 800);
     return () => clearTimeout(timer);
   }, []);
+
+  useEffect(() => {
+    if (!loading) {
+      let timeoutId = null;
+
+      const checkTasks = () => {
+        const reminderSent = JSON.parse(localStorage.getItem("reminderSent") || "{}");
+        let nextCheck = 60000;
+
+        Object.keys(tasks).forEach(listId => {
+          (tasks[listId] || []).forEach((task) => {
+            if (task.dueDate && !task.done && !task.archived) {
+              const due = new Date(task.dueDate).getTime();
+              const now = Date.now();
+              const timeLeft = due - now;
+              const uniqueKey = `${listId}:${task.id}:${task.dueDate}`;
+
+              if (timeLeft <= 0 && !reminderSent[uniqueKey + ":expired"]) {
+                reminderSent[uniqueKey + ":expired"] = true;
+                pushNotification({
+                  type: "expired",
+                  message: `Task "${task.text}" has expired!`,
+                  task,
+                  list: listId
+                });
+                showBrowserNotification("Task Expired", `Task "${task.text}" has expired!`);
+              }
+
+              if (!reminderSent[uniqueKey + ":reminder"] && timeLeft > 2 * 60 * 1000) {
+                const halfTime = timeLeft / 2;
+                if (timeLeft <= halfTime + 60000 && timeLeft >= halfTime - 60000) {
+                  reminderSent[uniqueKey + ":reminder"] = true;
+                  pushNotification({
+                    type: "reminder",
+                    message: `Task "${task.text}" is due in ${formatDuration(timeLeft)}!`,
+                    task,
+                    list: listId
+                  });
+                  showBrowserNotification("Task Reminder", `Task "${task.text}" is due in ${formatDuration(timeLeft)}!`);
+                }
+              }
+
+              if (timeLeft > 0 && timeLeft < nextCheck) {
+                nextCheck = Math.max(1000, timeLeft);
+              }
+            }
+          });
+        });
+
+        localStorage.setItem("reminderSent", JSON.stringify(reminderSent));
+        timeoutId = setTimeout(checkTasks, nextCheck);
+      };
+
+      checkTasks();
+
+      return () => {
+        if (timeoutId) clearTimeout(timeoutId);
+      };
+    }
+  }, [loading, tasks]);
 
   useEffect(() => {
     try {
@@ -297,7 +289,6 @@ const App = () => {
       };
       window.addEventListener("keydown", handleKey);
 
-      // Update lastNotifView with the latest notification times and save to localStorage
       const newLastNotifView = { ...lastNotifView };
       notifications.forEach(n => {
         const notifTime = new Date(n.time).getTime();
@@ -308,7 +299,6 @@ const App = () => {
       setLastNotifView(newLastNotifView);
       localStorage.setItem("lastNotifView", JSON.stringify(newLastNotifView));
 
-      // Recalculate unseenCount and update favicon badge
       const updatedUnseenCount = notifications.filter(
         n => !newLastNotifView[n.listId] || new Date(n.time).getTime() > newLastNotifView[n.listId]
       ).length;
@@ -341,7 +331,6 @@ const App = () => {
     }
   }, [completedCount]);
 
-  // Real-time progress update for all tasks
   useEffect(() => {
     const updateProgress = () => {
       const newProgress = {};
@@ -363,9 +352,9 @@ const App = () => {
       setTasksProgress(newProgress);
     };
 
-    updateProgress(); // Initial call
-    const interval = setInterval(updateProgress, 1000); // Update every second for real-time feel
-    return () => clearInterval(interval); // Cleanup on unmount
+    updateProgress();
+    const interval = setInterval(updateProgress, 1000);
+    return () => clearInterval(interval);
   }, [tasks]);
 
   function showBrowserNotification(title, body) {
@@ -391,12 +380,12 @@ const App = () => {
         ...prev,
         notifications: [
           {
-          id: Date.now() + Math.random(),
-          type: "fallback",
-          message: `${title}: ${body}`,
-          time: new Date().toISOString()
-        },
-        ...prev.notifications
+            id: Date.now() + Math.random(),
+            type: "fallback",
+            message: `${title}: ${body}`,
+            time: new Date().toISOString()
+          },
+          ...prev.notifications
         ]
       }));
     }
@@ -459,24 +448,38 @@ const App = () => {
   }, [newTask, tasks, currentList]);
 
   const toggleDone = useCallback((idx) => {
+    console.log("Toggling done for index:", idx, "current tasks:", tasks);
     setData(prev => {
       const updated = [...prev.tasks[currentList]];
-      if (!updated[idx].done && !isTaskExpired(updated[idx])) {
-        updated[idx].done = true;
-        pushNotification({
-          type: "completed",
-          message: `Task "${updated[idx].text}" marked as completed!`,
-          task: updated[idx],
-          list: currentList
-        });
-        showBrowserNotification("Task Completed", `Task "${updated[idx].text}" marked as completed!`);
+      if (idx >= 0 && idx < updated.length) {
+        if (!updated[idx].done && !isTaskExpired(updated[idx])) {
+          updated[idx].done = true;
+          pushNotification({
+            type: "completed",
+            message: `Task "${updated[idx].text}" marked as completed!`,
+            task: updated[idx],
+            list: currentList
+          });
+          showBrowserNotification("Task Completed", `Task "${updated[idx].text}" marked as completed!`);
+        } else {
+          updated[idx].done = !updated[idx].done;
+        }
+        try {
+          const newTasks = { ...prev.tasks, [currentList]: updated };
+          localStorage.setItem("tasks", JSON.stringify(newTasks));
+          console.log("Updated tasks:", newTasks);
+        } catch (e) {
+          console.error("Failed to save tasks to localStorage:", e);
+        }
+      } else {
+        console.warn("Invalid index:", idx, "for listTasks:", updated);
       }
       return {
         ...prev,
         tasks: { ...prev.tasks, [currentList]: updated }
       };
     });
-  }, [currentList]);
+  }, [currentList, tasks]);
 
   const archiveTask = useCallback((idx) => {
     const taskToArchive = (tasks[currentList] || [])[idx];
@@ -1017,14 +1020,14 @@ const App = () => {
                   task={task}
                   index={index}
                   globalIdx={page * TASKS_PER_PAGE + index}
-                  toggleDone={toggleDone}
-                  archiveTask={archiveTask}
-                  removeTask={removeTask}
+                  toggleDone={() => toggleDone(page * TASKS_PER_PAGE + index)}
+                  archiveTask={() => archiveTask(page * TASKS_PER_PAGE + index)}
+                  removeTask={() => removeTask(page * TASKS_PER_PAGE + index)}
                   isHighlighted={highlightedTask && highlightedTask.listId === currentList && highlightedTask.idx === page * TASKS_PER_PAGE + index}
                   taskRefs={taskRefs}
                   setSelectedTask={setSelectedTask}
                   progress={tasksProgress[`${currentList}:${page * TASKS_PER_PAGE + index}`] || 0}
-                  isDone={task.done} // Pass done state as prop
+                  isDone={task.done}
                 />
               ))}
               {totalPages > 1 && (

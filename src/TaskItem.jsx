@@ -28,36 +28,35 @@ const TaskItem = ({ task, index, globalIdx, toggleDone, archiveTask, removeTask,
 
   useEffect(() => {
     if (progressRef.current && isInitialMount.current) {
-      // Only reset to 0% for new tasks (created within the last 5 seconds)
       const isNewTask = !task.created || (Date.now() - task.created < 5000);
       if (isNewTask) {
         progressRef.current.style.width = '0%';
-        progressRef.current.style.transition = 'none'; // Disable transition for initial reset
+        progressRef.current.style.transition = 'none';
       }
-      // Apply transition after initial render for all tasks
       progressRef.current.style.transition = 'width 1s ease-in-out';
       isInitialMount.current = false;
     }
   }, []);
 
   useEffect(() => {
-    if (isDone && !wasDone.current && progressRef.current) {
-      // Get the current width percentage
+    if (progressRef.current && isDone && !wasDone.current) {
+      console.log("Starting completion animation, globalIdx:", globalIdx, "progress:", progress, "isDone:", isDone);
       const currentWidth = parseFloat(progressRef.current.style.width) || progress || 0;
-      // Set initial width to current progress
       progressRef.current.style.width = `${currentWidth}%`;
-      // Trigger animation to 100% over 0.5 seconds
       requestAnimationFrame(() => {
-        progressRef.current.style.transition = 'width 0.5s ease-out';
-        progressRef.current.style.width = '100%';
+        if (progressRef.current) {
+          progressRef.current.style.transition = 'width 0.5s ease-out';
+          progressRef.current.style.width = '100%';
+        }
       });
-      // Reset transition after animation
       setTimeout(() => {
-        progressRef.current.style.transition = 'width 1s ease-in-out';
+        if (progressRef.current) {
+          progressRef.current.style.transition = 'width 1s ease-in-out';
+        }
       }, 500);
-      wasDone.current = true; // Prevent re-triggering
+      wasDone.current = true;
     }
-  }, [isDone, progress]);
+  }, [isDone, progress, globalIdx]);
 
   const handlers = useSwipeable({
     onSwipedRight: () => {
@@ -86,7 +85,7 @@ const TaskItem = ({ task, index, globalIdx, toggleDone, archiveTask, removeTask,
           ref={progressRef}
           className={`absolute top-0 left-0 h-full rounded-full opacity-50 ${isDone ? 'bg-gradient-to-r from-green-200 via-green-300 to-green-400' : 'bg-gradient-to-r from-green-400 via-yellow-400 to-red-500'}`}
           style={{
-            width: `${isDone ? 100 : progress}%`, // Use 100% when done, otherwise use real-time progress
+            width: `${isDone ? 100 : Math.min(100, progress)}%`,
             zIndex: 1,
           }}
         />
