@@ -7,9 +7,9 @@
 
 /* Enhanced highlight glow effect */
 .highlight-glow {
+  @apply border-2 border-blue-600;
   box-shadow: 0 0 10px 5px rgba(59, 130, 246, 0.7),
               0 0 20px 10px rgba(59, 130, 246, 0.5);
-  border: 2px solid #3b82f6;
   animation: pulse 2s cubic-bezier(0.4, 0, 0.2, 1) 1 forwards;
 }
 
@@ -33,3 +33,50 @@
 }
 
 /* Ensure other existing styles remain intact */
+.animate-bell-ring {
+  animation: bell-ring 0.7s ease-in-out;
+}
+
+@keyframes bell-ring {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(15deg); }
+  75% { transform: rotate(-15deg); }
+}
+
+.animate-ping-short {
+  animation: ping 0.7s cubic-bezier(0, 0, 0.2, 1) forwards;
+}
+
+@keyframes ping {
+  75%, 100% { transform: scale(1.2); opacity: 0; }
+}
+
+/* New class for date/time spacing */
+.task-item-date {
+  margin-left: 12px; /* Default for mobile */
+}
+
+@media (min-width: 768px) {
+  .task-item-date {
+    margin-left: 0; /* No margin on desktop to bring date/time close to icons */
+  }
+}
+
+/* Styling for "Pick due date" button */
+.pick-due-date {
+  line-height: 1.1; /* Tighter line spacing */
+  margin-top: 2px;
+  padding: 2px 0;
+  min-width: 130px; /* Ensures enough width for one line */
+}
+
+@media (min-width: 768px) {
+  .pick-due-date {
+    margin-top: 0;
+    white-space: nowrap;
+    display: inline-flex;
+    line-height: 1.1;
+    padding: 1px 0;
+    min-width: 130px;
+  }
+}

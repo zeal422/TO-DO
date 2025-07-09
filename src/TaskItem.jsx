@@ -1,168 +1,193 @@
-import { useEffect, useRef } from 'react';
-import { useSwipeable } from 'react-swipeable';
-import { Trash2, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Archive as ArchiveIcon, Trash2 } from "lucide-react";
 
-const TaskItem = ({ task, index, globalIdx, toggleDone, archiveTask, removeTask, isHighlighted, taskRefs, setSelectedTask, progress, isDone }) => {
-  const expired = !task.done && task.dueDate && new Date(task.dueDate).getTime() < Date.now();
-  const completed = task.done;
-  let bg = "bg-white";
-  let border = "border-2 border-gray-300";
-  let text = "text-black";
-  if (completed) {
-    bg = "bg-green-100";
-    border = "border-green-400";
-    text = "text-green-700";
-  } else if (expired) {
-    bg = "bg-red-100";
-    border = "border-red-400";
-    text = "text-red-700";
-  } else if (task.dueDate) {
-    bg = "bg-yellow-100";
-    border = "border-yellow-400";
-    text = "text-yellow-700";
-  }
-
-  const progressRef = useRef(null);
-  const wasDone = useRef(false);
-  const isInitialMount = useRef(true);
+const TaskItem = ({
+  task,
+  index,
+  globalIdx,
+  finishTask,
+  archiveTask,
+  removeTask,
+  isHighlighted,
+  taskRefs,
+  setSelectedTask,
+  isDone
+}) => {
+  const taskRef = useRef(null);
+  const [progress, setProgress] = useState(0);
 
   useEffect(() => {
-    if (progressRef.current && isInitialMount.current) {
-      const isNewTask = !task.created || (Date.now() - task.created < 5000);
-      if (isNewTask) {
-        progressRef.current.style.width = '0%';
-        progressRef.current.style.transition = 'none';
-      }
-      progressRef.current.style.transition = 'width 1s ease-in-out';
-      isInitialMount.current = false;
-    }
-  }, []);
-
-  useEffect(() => {
-    if (progressRef.current && isDone && !wasDone.current) {
-      console.log("Starting completion animation, globalIdx:", globalIdx, "progress:", progress, "isDone:", isDone);
-      const currentWidth = parseFloat(progressRef.current.style.width) || progress || 0;
-      progressRef.current.style.width = `${currentWidth}%`;
-      requestAnimationFrame(() => {
-        if (progressRef.current) {
-          progressRef.current.style.transition = 'width 0.5s ease-out';
-          progressRef.current.style.width = '100%';
+    taskRefs.current[globalIdx] = taskRef.current;
+    if (!task.archived && task.dueDate) { // Show progress bar if dueDate exists and not archived
+      const updateProgress = () => {
+        const now = Date.now();
+        const due = new Date(task.dueDate).getTime();
+        const totalDuration = due - now;
+        if (totalDuration <= 0 && !isDone) {
+          setProgress(100);
+          // Do not auto-complete on expiration
+          return;
         }
-      });
-      setTimeout(() => {
-        if (progressRef.current) {
-          progressRef.current.style.transition = 'width 1s ease-in-out';
-        }
-      }, 500);
-      wasDone.current = true;
-    }
-  }, [isDone, progress, globalIdx]);
+        const elapsed = Math.max(0, due - now);
+        const initialDuration = new Date(task.dueDate).getTime() - new Date(task.created || now).getTime();
+        const progressPercent = ((initialDuration - elapsed) / initialDuration) * 100;
+        setProgress(Math.min(100, Math.max(0, progressPercent)));
+      };
 
-  const handlers = useSwipeable({
-    onSwipedRight: () => {
-      if (!expired && !completed) {
-        toggleDone(globalIdx);
-      }
-    },
-    delta: 50,
-    preventDefaultTouchmoveEvent: true,
-  });
+      updateProgress();
+      const interval = setInterval(updateProgress, 1000);
+      return () => clearInterval(interval);
+    } else {
+      setProgress(0);
+    }
+  }, [globalIdx, taskRefs, task, finishTask, isDone]);
+
+  const isExpired = task.dueDate && new Date(task.dueDate).getTime() <= Date.now() && !isDone && !task.archived;
 
   return (
     <div
-      ref={el => { if (isHighlighted) taskRefs.current[globalIdx] = el; }}
-      {...handlers}
-      className={`flex flex-nowrap items-center rounded-full px-2 py-1 w-11/12 md:w-1/2 shadow-md overflow-x-auto relative ${bg} ${border} ${isHighlighted ? "highlight-glow" : ""}`}
-      style={{ minHeight: "48px", transition: "box-shadow 0.3s, transform 0.3s" }}
-      onClick={() => setSelectedTask(task)}
-      tabIndex={0}
-      role="button"
-      aria-label={`Show details for task ${task.text}, swipe right to mark as done`}
+      ref={taskRef}
+      className={`relative w-full max-w-lg rounded-full px-4 py-2 shadow-md transition-all duration-300 ${
+        isHighlighted ? "bg-yellow-100" : ""
+      } ${
+        isDone && !task.archived && !isExpired ? "bg-green-100 opacity-80" : "" // Green background only if isDone is true
+      } ${
+        (task.archived || isExpired) ? "opacity-60 bg-red-100" : "bg-white"
+      }`}
+      style={{ minHeight: "48px", position: "relative", overflow: "hidden" }}
     >
-      {/* Progress Bar Overlay */}
-      {task.dueDate && (
+      {!isDone && !task.archived && task.dueDate && ( // Show progress bar only for active tasks with dueDate
         <div
-          ref={progressRef}
-          className={`absolute top-0 left-0 h-full rounded-full opacity-50 ${isDone ? 'bg-gradient-to-r from-green-200 via-green-300 to-green-400' : 'bg-gradient-to-r from-green-400 via-yellow-400 to-red-500'}`}
+          className="absolute top-0 left-0 h-full bg-blue-200 opacity-75 rounded-full transition-all duration-1000 ease-in-out"
           style={{
-            width: `${isDone ? 100 : Math.min(100, progress)}%`,
-            zIndex: 1,
+            width: `${progress}%`,
+            zIndex: 0, // Behind content
           }}
         />
       )}
-      <span className={`font-bold mr-2 text-sm md:text-base flex-shrink-0 ${text} z-10`}>{globalIdx + 1})</span>
-      <span
-        className={`flex-grow min-w-0 pr-2 text-sm md:text-base truncate ${text} transition-transform duration-300 z-10`}
-        style={{ transform: completed ? 'translateX(20px)' : 'translateX(0)' }}
-      >
-        {task.text}
-      </span>
-      {completed && (
-        <svg className="w-5 h-5 text-green-500 flex-shrink-0 ml-2 z-10" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-        </svg>
-      )}
-      {task.dueDate && (
-        <span className="ml-2 text-xs text-gray-700 flex-shrink-0 z-10">
-          {new Date(task.dueDate).toLocaleString()}
-        </span>
-      )}
-      {task.type === "longterm" && task.subtasks && (
-        <span className="ml-2 text-xs text-gray-500 flex-shrink-0 z-10">
-          [{task.subtasks}]
-        </span>
-      )}
-      <button
-        className={`ml-2 w-7 h-7 flex items-center justify-center rounded-full transition-colors duration-200 ${
-          completed
-            ? "bg-green-500 border-green-500 text-white"
-            : expired
-            ? "bg-red-300 border-red-400 text-white cursor-not-allowed"
-            : "bg-white border-gray-300 text-gray-700"
-        } border-2 flex-shrink-0 z-10`}
-        onClick={e => {
-          e.stopPropagation();
-          !expired && !completed && toggleDone(globalIdx);
-        }}
-        aria-label="Mark as done"
-        disabled={completed || expired}
-        title={completed ? "Completed" : expired ? "Expired" : "Mark as done"}
-      >
-        {completed ? (
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+      <div className="relative z-10 flex items-center justify-between w-full h-full" style={{ alignItems: "center", height: "48px" }}>
+        <div className="flex items-center flex-grow overflow-hidden" style={{ alignItems: "center" }}>
+          <button
+            className={`w-6 h-6 rounded-full border-2 flex items-center justify-center mr-2 ${
+              (task.archived || isExpired)
+                ? "bg-red-500 border-red-500"
+                : isDone
+                ? "bg-green-500 border-green-500"
+                : "bg-gray-200 border-gray-400 hover:bg-gray-300"
+            }`}
+            onClick={() => {
+              if (!isDone && !isExpired && !task.archived) {
+                finishTask();
+              }
+            }}
+            disabled={isDone || isExpired || task.archived}
+            aria-label={
+              task.archived
+                ? "Task archived"
+                : isExpired
+                ? "Task expired"
+                : isDone
+                ? "Task completed"
+                : "Mark task as finished"
+            }
+            style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}
+          >
+            {(task.archived || isExpired) && (
+              <svg
+                className="w-4 h-4 text-white"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="3"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M6 18L18 6M6 6l12 12"
+                />
+              </svg>
+            )}
+            {isDone && !isExpired && !task.archived && (
+              <svg
+                className="w-4 h-4 text-white"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="3"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M5 13l4 4L19 7"
+                />
+              </svg>
+            )}
+          </button>
+          <div
+            className="flex-grow min-w-0 pr-2 md:pr-0 text-sm md:text-base truncate flex items-center"
+            onClick={() => !task.archived && setSelectedTask(task)}
+            style={{
+              cursor: task.archived ? "default" : "pointer",
+              padding: "2px 0",
+              display: "flex",
+              alignItems: "center",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis"
+            }}
+          >
+            {task.text}
+          </div>
+          <div className="flex items-center space-x-2 flex-shrink-0 task-item-date" style={{ display: "flex", alignItems: "center" }}>
+            {task.dueDate && (
+              <span className="text-xs text-gray-500 flex items-center">
+                {new Date(task.dueDate).toLocaleString()}
+              </span>
+            )}
+            {task.type === "longterm" && task.subtasks && (
+              <span className="text-xs text-gray-500 flex items-center">
+                [{task.subtasks}]
+              </span>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-2" style={{ alignItems: "center", height: "48px" }}>
+          {!task.archived && (
+            <button
+              className="w-6 h-6 text-gray-500 hover:text-yellow-500"
+              onClick={archiveTask}
+              disabled={task.archived}
+              aria-label={task.archived ? "Task already archived" : "Archive task"}
+              style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}
+            >
+              <ArchiveIcon className="w-5 h-5" />
+            </button>
+          )}
+          <button
+            className="w-6 h-6 text-gray-500 hover:text-red-500"
+            onClick={removeTask}
+            disabled={task.archived}
+            aria-label={task.archived ? "Cannot remove archived task" : "Remove task"}
+            style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}
+          >
+            <Trash2 className="w-5 h-5" />
+          </button>
+        </div>
+      </div>
+      {!task.archived && !task.dueDate && (
+        <button
+          type="button"
+          className="pick-due-date flex items-center px-3 py-1 h-10 rounded-lg bg-white border border-gray-200 text-gray-700 text-base font-medium shadow-sm hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-400 transition w-full sm:w-auto whitespace-nowrap text-center"
+          onClick={() => document.getElementById('dueDateInput')?.showPicker && document.getElementById('dueDateInput')?.showPicker()}
+          aria-label="Pick due date"
+        >
+          <svg className="w-5 h-5 mr-2 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+            <rect x="3" y="4" width="18" height="18" rx="4" stroke="currentColor" strokeWidth="2" fill="none"/>
+            <path d="M16 2v4M8 2v4M3 10h18" stroke="currentColor" strokeWidth="2"/>
           </svg>
-        ) : expired ? (
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        ) : null}
-      </button>
-      <button
-        className="ml-2 w-7 h-7 flex items-center justify-center rounded-full bg-gray-200 text-gray-600 hover:bg-red-200 hover:text-red-600 transition flex-shrink-0 z-10"
-        onClick={e => {
-          e.stopPropagation();
-          if (window.confirm("Are you sure you want to archive this task?")) {
-            archiveTask(globalIdx);
-          }
-        }}
-        aria-label="Archive task"
-      >
-        <Trash2 className="w-4 h-4" />
-      </button>
-      <button
-        className="ml-2 w-7 h-7 flex items-center justify-center rounded-full bg-gray-200 text-gray-600 hover:bg-black hover:text-white transition flex-shrink-0 z-10"
-        onClick={e => {
-          e.stopPropagation();
-          if (window.confirm("Are you sure you want to permanently delete this task? This cannot be undone.")) {
-            removeTask(globalIdx);
-          }
-        }}
-        aria-label="Delete task"
-        title="Delete task permanently"
-      >
-        <X className="w-4 h-4" />
-      </button>
+          <span className="whitespace-nowrap">Pick due date</span>
+        </button>
+      )}
     </div>
   );
 };
