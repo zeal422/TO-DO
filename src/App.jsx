@@ -572,9 +572,9 @@ const App = () => {
             </div>
           ))}
 
-          <div className="flex items-center justify-center mt-6 relative">
-            <h1 className="text-4xl text-white font-bold">TO DO LIST</h1>
-            <div className="relative ml-4">
+          <div className="flex justify-center items-center mt-5 relative">
+            <h1 className="text-4xl text-white font-bold mr-4">TO DO LIST</h1>
+            <div className="relative">
               <button
                 className="focus:outline-none"
                 onClick={() => {
@@ -745,7 +745,7 @@ const App = () => {
           )}
 
           {!showArchive && (
-            <div className="flex flex-col items-center gap-2 w-full mt-2">
+            <div className="flex flex-col items-center gap-2 w-full mt-5">
               {lists.length === 0 ? (
                 <button
                   className="w-full max-w-lg rounded-2xl px-4 py-4 text-center font-semibold shadow-md text-base bg-green-500 text-white hover:bg-green-600 transition"
@@ -880,7 +880,7 @@ const App = () => {
           )}
 
           {showArchive && (
-            <ArchiveView currentList={currentList} />
+            <ArchiveView currentList={currentList} setShowArchive={setShowArchive} />
           )}
 
           <footer className="text-white text-center mt-10 text-sm">

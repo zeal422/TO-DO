@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Archive as ArchiveIcon, Trash2 } from "lucide-react";
+import { Archive as ArchiveIcon, Trash2, CheckCircle, XCircle } from "lucide-react";
 
 const TaskItem = ({
   task,
@@ -77,7 +77,7 @@ const TaskItem = ({
             }`}
             onClick={() => {
               if (!isDone && !isExpired && !task.archived) {
-                finishTask();
+                finishTask(index); // Pass index to finishTask
               }
             }}
             disabled={isDone || isExpired || task.archived}
@@ -93,34 +93,13 @@ const TaskItem = ({
             style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}
           >
             {(task.archived || isExpired) && (
-              <svg
-                className="w-4 h-4 text-white"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="3"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M6 18L18 6M6 6l12 12"
-                />
-              </svg>
+              <XCircle className="w-4 h-4 text-white" />
             )}
             {isDone && !isExpired && !task.archived && (
-              <svg
-                className="w-4 h-4 text-white"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="3"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M5 13l4 4L19 7"
-                />
-              </svg>
+              <CheckCircle className="w-4 h-4 text-white" />
+            )}
+            {!isDone && !isExpired && !task.archived && (
+              <CheckCircle className="w-4 h-4 text-gray-400" style={{ opacity: 0.5 }} /> // Empty circle effect
             )}
           </button>
           <div
@@ -155,7 +134,7 @@ const TaskItem = ({
           {!task.archived && (
             <button
               className="w-6 h-6 text-gray-500 hover:text-yellow-500"
-              onClick={archiveTask}
+              onClick={() => archiveTask(index)} // Pass index to archiveTask
               disabled={task.archived}
               aria-label={task.archived ? "Task already archived" : "Archive task"}
               style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}
@@ -165,7 +144,7 @@ const TaskItem = ({
           )}
           <button
             className="w-6 h-6 text-gray-500 hover:text-red-500"
-            onClick={removeTask}
+            onClick={() => removeTask(index)} // Pass index to removeTask
             disabled={task.archived}
             aria-label={task.archived ? "Cannot remove archived task" : "Remove task"}
             style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}
