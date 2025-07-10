@@ -747,18 +747,18 @@ const App = () => {
           {!showArchive && (
             <div className="flex flex-col items-center gap-2 w-full mt-2">
               {lists.length === 0 ? (
-                <div
-                  className="w-full max-w-lg rounded-2xl px-4 py-4 text-center font-semibold shadow-md text-base"
+                <button
+                  className="w-full max-w-lg rounded-2xl px-4 py-4 text-center font-semibold shadow-md text-base bg-green-500 text-white hover:bg-green-600 transition"
                   style={{
-                    background: "#fff3",
                     backdropFilter: "blur(6px)",
                     border: "1.5px solid #fff5",
-                    color: "#e5e7eb",
                     textShadow: "0 1px 4px #000a"
                   }}
+                  onClick={handleAddList}
+                  aria-label="Add a new list to start adding tasks"
                 >
                   Add a new list first to start adding tasks.
-                </div>
+                </button>
               ) : (
                 <form
                   className="w-full max-w-lg rounded-2xl px-3 py-2 flex flex-col sm:flex-row items-center justify-center gap-2 shadow-lg bg-white/70 backdrop-blur-md border border-gray-200"
@@ -781,7 +781,7 @@ const App = () => {
                   <div className="flex flex-col relative w-full sm:w-auto">
                     <button
                       type="button"
-                      className="pick-due-date flex items-center px-3 py-2 h-10 rounded-lg bg-white border border-gray-200 text-gray-700 text-base font-medium shadow-sm hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-400 transition w-full sm:w-auto whitespace-nowrap text-center leading-tight"
+                      className="pick-due-date flex items-center px-3 py-2 h-10 rounded-lg bg-white border border-gray-200 text-gray-700 font-medium shadow-sm hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-400 transition w-full sm:w-auto whitespace-nowrap text-center leading-tight"
                       style={{
                         minWidth: 130, // Ensures enough width for one line on desktop
                         lineHeight: 1.1, // Tighter if it wraps
@@ -789,7 +789,7 @@ const App = () => {
                       onClick={() => document.getElementById('dueDateInput').showPicker && document.getElementById('dueDateInput').showPicker()}
                       aria-label="Pick due date"
                     >
-                      <svg className="w-5 h-5 mr-2 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                      <svg className="w-4 h-4 mr-2 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                         <rect x="3" y="4" width="18" height="18" rx="4" stroke="currentColor" strokeWidth="2" fill="none"/>
                         <path d="M16 2v4M8 2v4M3 10h18" stroke="currentColor" strokeWidth="2"/>
                       </svg>
@@ -886,7 +886,7 @@ const App = () => {
           <footer className="text-white text-center mt-10 text-sm">
             <p>Developed by VectorMedia</p>
             <p className="opacity-70">©{new Date().getFullYear()} - All rights reserved</p>
-            <p className="opacity-70">V1.3</p>
+            <p className="opacity-70">V1.2</p>
           </footer>
         </>
       </div>

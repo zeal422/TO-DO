@@ -78,5 +78,31 @@
     line-height: 1.1;
     padding: 1px 0;
     min-width: 130px;
+    font-size: 0.875rem; /* Slightly smaller text (14px) */
   }
+  .pick-due-date svg {
+    width: 4px; /* Smaller icon width */
+    height: 4px; /* Smaller icon height */
+    margin-right: 0.5rem; /* Adjusted spacing between icon and text */
+  }
+}
+
+@media (max-width: 767px) {
+  .pick-due-date svg {
+    width: 4px; /* Slightly smaller icon for mobile */
+    height: 4px; /* Slightly smaller icon for mobile */
+    margin-left: 0.5rem; /* Add padding from the left border on mobile */
+    margin-right: 0.5rem; /* Consistent spacing with text */
+  }
+}
+
+/* Styling for the new button-like message when no lists exist */
+.no-list-prompt {
+  transition: all 0.3s ease;
+}
+
+.no-list-prompt:hover {
+  background: "#fff4";
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
 }
