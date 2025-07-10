@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
-import { Trash2 } from "lucide-react";
+import { Trash2, CheckCircle, XCircle } from "lucide-react";
 import useStore from "./store";
 
-const ArchiveView = ({ currentList, setShowArchive }) => {
+const ArchiveView = ({ currentList, setShowArchive, setSelectedTask, taskRefs }) => {
   const { archive, removeTask, undoArchiveTask } = useStore();
   const [undoTaskQueue, setUndoTaskQueue] = useState([]);
 
@@ -28,10 +28,16 @@ const ArchiveView = ({ currentList, setShowArchive }) => {
 
   const archivedTasks = archive[currentList] || [];
 
+  const isExpired = (task) => task.dueDate && new Date(task.dueDate).getTime() <= Date.now() && !task.done;
+
+  const formatDate = (dateStr) => {
+    return dateStr ? new Date(dateStr).toLocaleString() : "N/A";
+  };
+
   return (
     <div className="flex flex-col items-center gap-3 w-full px-1 sm:px-2 md:px-4 mt-4">
       <button
-        className="w-full max-w-lg mb-4 px-4 py-2 bg-[#fbbf24] text-white rounded-full font-semibold hover:bg-[#d9a316]"
+        className="w-full max-w-lg mb-4 px-4 py-2 bg-[#fbbf24] text-white rounded-full font-semibold hover:bg-[#d9a316] transition"
         onClick={() => setShowArchive(false)}
         aria-label="Back to active tasks"
       >
@@ -43,31 +49,85 @@ const ArchiveView = ({ currentList, setShowArchive }) => {
         archivedTasks.map((task, index) => (
           <div
             key={task.id || task.created || index}
-            className="w-full max-w-lg rounded-full px-4 py-2 bg-gray-200 opacity-60 shadow-md flex items-center justify-between"
-            style={{ minHeight: "48px" }}
+            ref={el => (taskRefs.current[index] = el)}
+            className={`relative w-full max-w-lg rounded-full px-4 py-2 shadow-md transition-all duration-300 ${
+              isExpired(task) ? "bg-red-100 opacity-60" : task.done ? "bg-green-100 opacity-80" : "bg-gray-200"
+            }`}
+            style={{ minHeight: "48px", position: "relative", overflow: "hidden", cursor: "pointer" }}
+            onClick={() => setSelectedTask(task)}
           >
-            <span className="text-sm md:text-base text-gray-700 truncate">{task.text}</span>
-            <button
-              className="w-6 h-6 text-gray-500 hover:text-red-500"
-              onClick={() => {
-                const globalIdx = index;
-                handleRemoveTask(currentList, globalIdx);
-                setUndoTaskQueue(prevQueue => [
-                  ...prevQueue,
-                  {
-                    task,
-                    idx: globalIdx,
-                    listId: currentList,
-                    timer: setTimeout(() => {
-                      setUndoTaskQueue(q => q.filter(u => u.task.id !== task.id));
-                    }, 6000)
+            <div className="relative z-10 flex items-center justify-between w-full h-full" style={{ alignItems: "center", height: "48px" }}>
+              <div className="flex items-center flex-grow overflow-hidden" style={{ alignItems: "center" }}>
+                <button
+                  className={`w-6 h-6 rounded-full border-2 flex items-center justify-center mr-2 ${
+                    isExpired(task)
+                      ? "bg-red-500 border-red-500"
+                      : task.done
+                      ? "bg-green-500 border-green-500"
+                      : "bg-gray-200 border-gray-400"
+                  }`}
+                  disabled={true}
+                  aria-label={
+                    isExpired(task)
+                      ? "Task expired"
+                      : task.done
+                      ? "Task completed"
+                      : "Task incomplete"
                   }
-                ]);
-              }}
-              aria-label="Delete archived task"
-            >
-              <Trash2 className="w-5 h-5" />
-            </button>
+                  style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}
+                >
+                  {isExpired(task) && <XCircle className="w-4 h-4 text-white" />}
+                  {task.done && !isExpired(task) && <CheckCircle className="w-4 h-4 text-white" />}
+                  {!task.done && !isExpired(task) && <CheckCircle className="w-4 h-4 text-gray-400" style={{ opacity: 0.5 }} />}
+                </button>
+                <div className="flex items-center gap-2 flex-grow min-w-0">
+                  <div
+                    className="text-sm md:text-base truncate flex-grow"
+                    style={{
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis"
+                    }}
+                  >
+                    {task.text}
+                  </div>
+                  {task.dueDate && (
+                    <div className="text-xs text-gray-500 ml-2" style={{ whiteSpace: "nowrap" }}>
+                      {isExpired(task)
+                        ? `Expired: ${formatDate(task.dueDate)}`
+                        : task.done
+                        ? `Completed: ${formatDate(task.dueDate)}`
+                        : `Due: ${formatDate(task.dueDate)}`}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-2" style={{ alignItems: "center", height: "48px" }}>
+                <button
+                  className="w-6 h-6 text-gray-500 hover:text-red-500"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const globalIdx = index;
+                    handleRemoveTask(currentList, globalIdx);
+                    setUndoTaskQueue(prevQueue => [
+                      ...prevQueue,
+                      {
+                        task,
+                        idx: globalIdx,
+                        listId: currentList,
+                        timer: setTimeout(() => {
+                          setUndoTaskQueue(q => q.filter(u => u.task.id !== task.id));
+                        }, 6000)
+                      }
+                    ]);
+                  }}
+                  aria-label="Delete archived task"
+                  style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}
+                >
+                  <Trash2 className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
           </div>
         ))
       )}

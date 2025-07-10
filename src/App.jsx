@@ -880,7 +880,12 @@ const App = () => {
           )}
 
           {showArchive && (
-            <ArchiveView currentList={currentList} setShowArchive={setShowArchive} />
+            <ArchiveView
+              currentList={currentList}
+              setShowArchive={setShowArchive}
+              setSelectedTask={setSelectedTask}
+              taskRefs={taskRefs}
+            />
           )}
 
           <footer className="text-white text-center mt-10 text-sm">
