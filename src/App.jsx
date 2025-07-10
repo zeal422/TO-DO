@@ -18,7 +18,7 @@ const TASKS_PER_PAGE = 100;
 
 function isTaskExpired(task) {
   if (!task.dueDate) return false;
-  return !task.done && !task.archived && new Date(task.dueDate).getTime() < Date.now();
+  return !task.done && new Date(task.dueDate).getTime() < Date.now();
 }
 function formatDuration(ms) {
   const min = Math.round(ms / 60000);
@@ -726,9 +726,9 @@ const App = () => {
                 )}
                 <div className="mb-2">
                   <span className="font-semibold">Status:</span>{" "}
-                  {selectedTask.done ? "Completed" : isTaskExpired(selectedTask) ? "Expired" : "Active"}
+                  {selectedTask.done ? "Completed" : isTaskExpired(selectedTask) ? "Expired" : selectedTask.archived ? "Archived" : "Active"}
                 </div>
-                {!selectedTask.done && (
+                {!selectedTask.archived && !selectedTask.done && (
                   <button
                     className="mt-4 w-full bg-green-500 hover:bg-green-600 text-white rounded py-2"
                     onClick={() => {

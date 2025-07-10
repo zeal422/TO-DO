@@ -53,11 +53,33 @@ const useStore = create(
             archive: { ...state.archive, [listId]: updatedArchive },
           };
         }),
-      removeTask: (listId, idx) =>
+      removeTask: (listId, idx, isArchive = false) =>
         set((state) => {
-          const updated = (state.tasks[listId] || []).filter((_, i) => i !== idx);
+          if (isArchive) {
+            const updatedArchive = (state.archive[listId] || []).filter((_, i) => i !== idx);
+            return {
+              archive: { ...state.archive, [listId]: updatedArchive },
+            };
+          } else {
+            const updated = (state.tasks[listId] || []).filter((_, i) => i !== idx);
+            return {
+              tasks: { ...state.tasks, [listId]: updated },
+            };
+          }
+        }),
+      deleteTaskFromArchive: (listId, idx) =>
+        set((state) => {
+          const updatedArchive = (state.archive[listId] || []).filter((_, i) => i !== idx);
           return {
-            tasks: { ...state.tasks, [listId]: updated },
+            archive: { ...state.archive, [listId]: updatedArchive },
+          };
+        }),
+      undoDeleteTaskFromArchive: (listId, task, idx) =>
+        set((state) => {
+          const updatedArchive = [...(state.archive[listId] || [])];
+          updatedArchive.splice(idx, 0, task); // Reinsert at original index
+          return {
+            archive: { ...state.archive, [listId]: updatedArchive },
           };
         }),
       addList: (id, name) =>

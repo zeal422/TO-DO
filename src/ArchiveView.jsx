@@ -3,7 +3,7 @@ import { Trash2, CheckCircle, XCircle } from "lucide-react";
 import useStore from "./store";
 
 const ArchiveView = ({ currentList, setShowArchive, setSelectedTask, taskRefs }) => {
-  const { archive, removeTask, undoArchiveTask } = useStore();
+  const { archive, deleteTaskFromArchive, undoDeleteTaskFromArchive } = useStore();
   const [undoTaskQueue, setUndoTaskQueue] = useState([]);
 
   useEffect(() => {
@@ -14,14 +14,26 @@ const ArchiveView = ({ currentList, setShowArchive, setSelectedTask, taskRefs })
   }, [currentList]);
 
   const handleRemoveTask = (listId, idx) => {
-    removeTask(listId, idx);
+    const taskToRemove = archive[listId][idx];
+    deleteTaskFromArchive(listId, idx);
+    setUndoTaskQueue(prevQueue => [
+      ...prevQueue,
+      {
+        task: taskToRemove,
+        idx,
+        listId,
+        timer: setTimeout(() => {
+          setUndoTaskQueue(q => q.filter(u => u.task.id !== taskToRemove.id));
+        }, 6000)
+      }
+    ]);
   };
 
-  const handleUndoArchiveTask = (taskId, listId, idx) => {
+  const handleUndoDeleteTask = (taskId, listId, idx) => {
     const undoInfo = undoTaskQueue.find(u => u.task.id === taskId);
     if (undoInfo) {
       clearTimeout(undoInfo.timer);
-      undoArchiveTask(listId, undoInfo.task, idx);
+      undoDeleteTaskFromArchive(listId, undoInfo.task, undoInfo.idx);
       setUndoTaskQueue(q => q.filter(u => u.task.id !== taskId));
     }
   };
@@ -109,17 +121,6 @@ const ArchiveView = ({ currentList, setShowArchive, setSelectedTask, taskRefs })
                     e.stopPropagation();
                     const globalIdx = index;
                     handleRemoveTask(currentList, globalIdx);
-                    setUndoTaskQueue(prevQueue => [
-                      ...prevQueue,
-                      {
-                        task,
-                        idx: globalIdx,
-                        listId: currentList,
-                        timer: setTimeout(() => {
-                          setUndoTaskQueue(q => q.filter(u => u.task.id !== task.id));
-                        }, 6000)
-                      }
-                    ]);
                   }}
                   aria-label="Delete archived task"
                   style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}
@@ -143,7 +144,7 @@ const ArchiveView = ({ currentList, setShowArchive, setSelectedTask, taskRefs })
           </span>
           <button
             className="bg-blue-500 hover:bg-blue-700 text-white px-3 py-1 rounded-full font-semibold transition"
-            onClick={() => handleUndoArchiveTask(undoInfo.task.id, undoInfo.listId, undoInfo.idx)}
+            onClick={() => handleUndoDeleteTask(undoInfo.task.id, undoInfo.listId, undoInfo.idx)}
             aria-label="Undo delete archived task"
           >
             Undo
