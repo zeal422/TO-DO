@@ -9,7 +9,7 @@ import { ErrorBoundary } from 'react-error-boundary';
 import { Bell, Plus, Trash2, FolderPlus, FolderOpen, X } from "lucide-react";
 
 const COLORS = [
-  "#d62338", "#357C74", "#4D4D4D", "#1C1C1C", "#fbbf24", "#2563eb"
+  "#d62338", "#357C74", "#4D4D4D", "#1C1C1C", "#2563eb"
 ];
 const MAX_LIST_NAME = 25;
 const UNDO_TIMEOUT = 6000;
@@ -356,23 +356,28 @@ const App = () => {
 
   const handleFinishTask = useCallback((idx) => {
     const globalIdx = page * TASKS_PER_PAGE + idx;
-    toggleDone(currentList, globalIdx);
-    const task = (tasks[currentList] || [])[globalIdx];
-    if (task.done) {
+    const originalTask = (tasks[currentList] || [])[globalIdx];
+    const updatedTask = {
+      ...originalTask,
+      done: true,
+      completedAt: new Date().toISOString() // Ensure completedAt is set here
+    };
+    toggleDone(currentList, globalIdx, updatedTask);
+    if (updatedTask.done) {
       pushNotification({
         type: "completed",
-        message: `Task "${task.text}" completed!`,
-        task,
+        message: `Task "${updatedTask.text}" completed!`,
+        task: updatedTask,
         list: currentList
       });
-      showBrowserNotification("Task Completed", `Task "${task.text}" completed!`);
+      showBrowserNotification("Task Completed", `Task "${updatedTask.text}" completed!`);
     }
   }, [currentList, page, tasks, toggleDone, pushNotification]);
 
   const handleArchiveTask = useCallback((idx) => {
     const globalIdx = page * TASKS_PER_PAGE + idx;
-    const taskToArchive = (tasks[currentList] || [])[globalIdx];
-    archiveTask(currentList, globalIdx);
+    const taskToArchive = { ...((tasks[currentList] || [])[globalIdx]), archived: true };
+    archiveTask(currentList, globalIdx, taskToArchive);
     setUndoTaskQueue(prevQueue => {
       const existing = prevQueue.find(u => u.task.id === taskToArchive.id);
       if (existing) {
@@ -551,7 +556,7 @@ const App = () => {
             </button>
             <button
               className={`px-2 py-1 rounded-full flex items-center gap-1 text-sm sm:text-base ${
-                showArchive ? "bg-yellow-400 text-black" : "bg-black/30 text-white"
+                showArchive ? "bg-[#fbbf24] text-black" : "bg-black/30 text-white"
               }`}
               onClick={() => setShowArchive(a => !a)}
               aria-label={showArchive ? "Hide Archive" : "Show Archive"}
@@ -620,9 +625,7 @@ const App = () => {
                 aria-label="Show notifications"
               >
                 <Bell
-                  className={`w-8 h-8 transition-transform duration-300 ${
-                    bgColor === "#fbbf24" ? "text-white" : "text-yellow-400"
-                  } ${badgeAnim ? "animate-bell-ring" : ""}`}
+                  className={`w-8 h-8 transition-transform duration-300 text-yellow-400 ${badgeAnim ? "animate-bell-ring" : ""}`}
                 />
                 {!showNotifCenter && unseenCount > 0 && (
                   <span
@@ -727,56 +730,66 @@ const App = () => {
           )}
 
           {selectedTask && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" role="dialog" aria-modal="true">
-              <div className="bg-white rounded-xl shadow-2xl w-full max-w-xs sm:max-w-md mx-2 p-4 relative">
-                <button
-                  className="absolute top-2 right-2 text-gray-500 hover:text-black"
-                  onClick={() => setSelectedTask(null)}
-                  aria-label="Close task details"
-                  style={{ zIndex: 10 }}
-                >
-                  <X className="w-6 h-6" />
-                </button>
-                <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
-                  <span className="inline-block w-2 h-2 rounded-full bg-blue-400"></span>
-                  Task Details
-                </h2>
-                <div className="mb-2">
-                  <span className="font-semibold">Text:</span>
-                  <div className="break-words">{selectedTask.text}</div>
-                </div>
-                <div className="mb-2">
-                  <span className="font-semibold">Type:</span> {selectedTask.type || "N/A"}
-                </div>
-                {selectedTask.dueDate && (
-                  <div className="mb-2">
-                    <span className="font-semibold">Due:</span> {new Date(selectedTask.dueDate).toLocaleString()}
-                  </div>
-                )}
-                {selectedTask.subtasks && (
-                  <div className="mb-2">
-                    <span className="font-semibold">Subtasks:</span> {selectedTask.subtasks}
-                  </div>
-                )}
-                <div className="mb-2">
-                  <span className="font-semibold">Status:</span>{" "}
-                  {selectedTask.done ? "Completed" : isTaskExpired(selectedTask) ? "Expired" : selectedTask.archived ? "Archived" : "Active"}
-                </div>
-                {!selectedTask.archived && !selectedTask.done && (
-                  <button
-                    className="mt-4 w-full bg-green-500 hover:bg-green-600 text-white rounded py-2"
-                    onClick={() => {
-                      handleFinishTask(pagedTasks.findIndex(t => t.id === selectedTask.id));
-                      setSelectedTask(null);
-                    }}
-                    aria-label="Finish task"
-                  >
-                    Finish Task
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" role="dialog" aria-modal="true">
+    <div className="bg-white rounded-xl shadow-2xl w-full max-w-xs sm:max-w-md mx-2 p-4 relative">
+      <button
+        className="absolute top-2 right-2 text-gray-500 hover:text-black"
+        onClick={() => setSelectedTask(null)}
+        aria-label="Close task details"
+        style={{ zIndex: 10 }}
+      >
+        <X className="w-6 h-6" />
+      </button>
+      <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+        <span className="inline-block w-2 h-2 rounded-full bg-blue-400"></span>
+        Task Details
+      </h2>
+      <div className="mb-2">
+        <span className="font-semibold">Text:</span>
+        <div className="break-words">{selectedTask.text}</div>
+      </div>
+      {selectedTask.dueDate && (
+        <div className="mb-2">
+          <span className="font-semibold">Due:</span> {new Date(selectedTask.dueDate).toLocaleString()}
+        </div>
+      )}
+      {selectedTask.subtasks && (
+        <div className="mb-2">
+          <span className="font-semibold">Subtasks:</span> {selectedTask.subtasks}
+        </div>
+      )}
+      <div className="mb-2">
+        <span className="font-semibold">Status:</span>{" "}
+        {selectedTask.done ? (
+          <>
+            Completed
+            {selectedTask.completedAt && !isNaN(Date.parse(selectedTask.completedAt)) && (
+              <> {new Date(selectedTask.completedAt).toLocaleString()}</>
+            )}
+          </>
+        ) : isTaskExpired(selectedTask) ? (
+          "Expired"
+        ) : selectedTask.archived ? (
+          "Archived"
+        ) : (
+          "Active"
+        )}
+      </div>
+      {!selectedTask.archived && !selectedTask.done && (
+        <button
+          className="mt-4 w-full bg-green-500 hover:bg-green-600 text-white rounded py-2"
+          onClick={() => {
+            handleFinishTask(pagedTasks.findIndex(t => t.id === selectedTask.id));
+            setSelectedTask(null);
+          }}
+          aria-label="Finish task"
+        >
+          Finish Task
+        </button>
+      )}
+    </div>
+  </div>
+)}
 
           {!showArchive && (
             <div className="flex flex-col items-center gap-2 w-full mt-5">
@@ -926,7 +939,7 @@ const App = () => {
           <footer className="text-white text-center mt-10 text-sm">
             <p>Developed by VectorMedia</p>
             <p className="opacity-70">©{new Date().getFullYear()} - All rights reserved</p>
-            <p className="opacity-70">V1.3</p>
+            <p className="opacity-70">V1.2</p>
           </footer>
         </>
       </div>

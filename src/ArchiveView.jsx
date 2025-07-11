@@ -149,7 +149,7 @@ const ArchiveView = ({ currentList, setShowArchive, setSelectedTask, taskRefs, o
           style={{ bottom: `${4 + idx * 60}px` }}
         >
           <span>
-            Task <b>{undoInfo.task.text}</b> deleted from archive.
+            Task <b>{undoInfo.task.text}</b> {undoInfo.task.archived ? "archived" : "deleted"}.
           </span>
           <button
             className="bg-blue-500 hover:bg-blue-700 text-white px-3 py-1 rounded-full font-semibold transition"

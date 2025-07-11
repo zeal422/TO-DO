@@ -15,11 +15,18 @@ const useStore = create(
             [listId]: [task, ...(state.tasks[listId] || [])], // Prepend new task
           },
         })),
-      toggleDone: (listId, idx) =>
+      toggleDone: (listId, idx, updatedTask) =>
         set((state) => {
           const updated = [...(state.tasks[listId] || [])];
           if (idx >= 0 && idx < updated.length) {
-            updated[idx].done = !updated[idx].done;
+            // If updatedTask is provided, use it (from App.jsx)
+            if (updatedTask) {
+              updated[idx] = { ...updatedTask, completedAt: updatedTask.done ? (updatedTask.completedAt || new Date().toISOString()) : undefined };
+            } else {
+              // Fallback: toggle done and set completedAt if done
+              updated[idx].done = !updated[idx].done;
+              updated[idx].completedAt = updated[idx].done ? new Date().toISOString() : undefined;
+            }
           }
           return {
             tasks: { ...state.tasks, [listId]: updated },
