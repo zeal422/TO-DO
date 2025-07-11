@@ -113,6 +113,10 @@ const useStore = create(
         set((state) => ({ notifications: [] })),
       setData: (newData) =>
         set((state) => ({ ...state, ...newData })),
+      clearArchive: (listId) =>
+        set((state) => ({
+          archive: { ...state.archive, [listId]: [] },
+        })),
     }),
     {
       name: "task-app-storage",

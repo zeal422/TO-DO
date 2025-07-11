@@ -120,7 +120,8 @@ const App = () => {
     undoDeleteList,
     addNotification,
     clearNotifications,
-    setData
+    setData,
+    clearArchive
   } = useStore();
 
   const [bgColor, setBgColor] = useState(localStorage.getItem("bgColor") || COLORS[3]);
@@ -406,8 +407,21 @@ const App = () => {
   }, [undoTaskQueue, undoArchiveTask]);
 
   const handleRemoveTask = useCallback((idx) => {
-    removeTask(currentList, page * TASKS_PER_PAGE + idx);
-  }, [currentList, page, removeTask]);
+    const globalIdx = page * TASKS_PER_PAGE + idx;
+    const taskToRemove = (tasks[currentList] || [])[globalIdx];
+    removeTask(currentList, globalIdx);
+    setUndoTaskQueue(prevQueue => [
+      ...prevQueue,
+      {
+        task: taskToRemove,
+        idx: globalIdx,
+        listId: currentList,
+        timer: setTimeout(() => {
+          setUndoTaskQueue(q => q.filter(u => u.task.id !== taskToRemove.id));
+        }, UNDO_TIMEOUT)
+      }
+    ]);
+  }, [currentList, page, tasks, removeTask]);
 
   const handleAddList = useCallback(() => {
     let name = prompt(`List name? (max ${MAX_LIST_NAME} characters)`);
@@ -455,6 +469,20 @@ const App = () => {
     setCurrentList(undoInfo.list.id);
     setUndoListQueue(q => q.filter(u => u.list.id !== listId));
   }, [undoListQueue, undoDeleteList]);
+
+  const handleUndoRemoveTask = useCallback((taskId) => {
+    const undoInfo = undoTaskQueue.find(u => u.task.id === taskId);
+    if (!undoInfo) return;
+    clearTimeout(undoInfo.timer);
+    addTask(undoInfo.listId, undoInfo.task); // Re-add the task at the end
+    setUndoTaskQueue(q => q.filter(u => u.task.id !== taskId));
+  }, [undoTaskQueue, addTask]);
+
+  const handleDeleteAllArchived = useCallback(() => {
+    if (window.confirm("Are you sure you want to delete all archived tasks? This action cannot be undone.")) {
+      clearArchive(currentList);
+    }
+  }, [currentList, clearArchive]);
 
   const unseenCount = notifications.length > lastSeenNotifCount ? notifications.length - lastSeenNotifCount : 0;
 
@@ -539,13 +567,19 @@ const App = () => {
               role="alert"
               style={{ bottom: `${4 + idx * 60}px` }}
             >
-              <span>
-                Task <b>{undoInfo.task.text}</b> archived.
-              </span>
+              {undoInfo.task.archived ? (
+                <span>
+                  Task <b>{undoInfo.task.text}</b> archived.
+                </span>
+              ) : (
+                <span>
+                  Task <b>{undoInfo.task.text}</b> deleted.
+                </span>
+              )}
               <button
                 className="bg-blue-500 hover:bg-blue-700 text-white px-3 py-1 rounded-full font-semibold transition"
-                onClick={() => handleUndoArchiveTask(undoInfo.task.id)}
-                aria-label="Undo archive task"
+                onClick={() => undoInfo.task.archived ? handleUndoArchiveTask(undoInfo.task.id) : handleUndoRemoveTask(undoInfo.task.id)}
+                aria-label={undoInfo.task.archived ? "Undo archive task" : "Undo delete task"}
               >
                 Undo
               </button>
@@ -885,13 +919,14 @@ const App = () => {
               setShowArchive={setShowArchive}
               setSelectedTask={setSelectedTask}
               taskRefs={taskRefs}
+              onDeleteAllArchived={handleDeleteAllArchived}
             />
           )}
 
           <footer className="text-white text-center mt-10 text-sm">
             <p>Developed by VectorMedia</p>
             <p className="opacity-70">©{new Date().getFullYear()} - All rights reserved</p>
-            <p className="opacity-70">V1.2</p>
+            <p className="opacity-70">V1.3</p>
           </footer>
         </>
       </div>
