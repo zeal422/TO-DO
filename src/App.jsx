@@ -7,6 +7,7 @@ import ArchiveView from "./ArchiveView";
 import useStore from "./store";
 import { ErrorBoundary } from "react-error-boundary";
 import { Bell, Plus, Trash2, FolderPlus, FolderOpen, X, Info } from "lucide-react";
+import { motion } from "framer-motion"; // Import Framer Motion
 
 const COLORS = ["#d62338", "#357C74", "#4D4D4D", "#1C1C1C", "#2563eb"];
 const MAX_LIST_NAME = 25;
@@ -94,12 +95,14 @@ function ErrorFallback({ error, resetErrorBoundary }) {
     <div className="text-white text-center p-4">
       <h2 className="text-xl font-bold">Something Went Wrong</h2>
       <p>{error.message}</p>
-      <button
+      <motion.button
         className="mt-4 px-4 py-2 bg-blue-500 text-white rounded"
+        whileHover={{ scale: 1.1 }}
+        transition={{ duration: 0.3 }}
         onClick={resetErrorBoundary}
       >
         Try Again
-      </button>
+      </motion.button>
     </div>
   );
 }
@@ -389,9 +392,12 @@ const App = () => {
           clearTimeout(existing.timer);
           return prevQueue.map((u) =>
             u.task.id === taskToArchive.id
-              ? { ...u, timer: setTimeout(() => {
-                  setUndoTaskQueue((q2) => q2.filter((u2) => u2.task.id !== taskToArchive.id));
-                }, UNDO_TIMEOUT) }
+              ? {
+                  ...u,
+                  timer: setTimeout(() => {
+                    setUndoTaskQueue((q2) => q2.filter((u2) => u2.task.id !== taskToArchive.id));
+                  }, UNDO_TIMEOUT),
+                }
               : u
           );
         } else {
@@ -528,9 +534,11 @@ const App = () => {
           <div className="flex justify-center pt-8">
             {COLORS.map((color) => (
               <div key={color} className="relative mx-1">
-                <button
+                <motion.button
                   className="w-6 h-2 rounded-full"
                   style={{ backgroundColor: color }}
+                  whileHover={{ scale: 1.1 }}
+                  transition={{ duration: 0.3 }}
                   onClick={() => setBgColor(color)}
                   aria-label={`Set background color to ${color}`}
                 />
@@ -541,9 +549,9 @@ const App = () => {
 
           <div className="flex justify-center mt-4 gap-2 flex-wrap">
             {lists.map((list) => (
-              <button
+              <motion.button
                 key={list.id}
-                className="px-3 py-1 rounded-full font-semibold transition text-sm sm:text-base"
+                className="px-3 py-1 rounded-full font-semibold text-sm sm:text-base"
                 title={list.name}
                 style={{
                   background: currentList === list.id ? "#fff" : "rgba(0,0,0,0.3)",
@@ -551,6 +559,8 @@ const App = () => {
                   boxShadow: currentList === list.id ? "0 1px 4px rgba(0,0,0,0.08)" : undefined,
                   border: "none",
                 }}
+                whileHover={{ scale: 1.1 }}
+                transition={{ duration: 0.3 }}
                 onClick={() => {
                   setCurrentList(list.id);
                   setPage(0);
@@ -567,24 +577,28 @@ const App = () => {
                   aria-label={`Delete list ${list.name}`}
                   tabIndex={-1}
                 />
-              </button>
+              </motion.button>
             ))}
-            <button
+            <motion.button
               className="px-2 py-1 rounded-full bg-green-500 text-white flex items-center gap-1 text-sm sm:text-base"
+              whileHover={{ scale: 1.1 }}
+              transition={{ duration: 0.3 }}
               onClick={handleAddList}
               aria-label="Add new list"
             >
               <FolderPlus className="w-4 h-4" /> Add List
-            </button>
-            <button
+            </motion.button>
+            <motion.button
               className={`px-2 py-1 rounded-full flex items-center gap-1 text-sm sm:text-base ${
                 showArchive ? "bg-[#fbbf24] text-black" : "bg-black/30 text-white"
               }`}
+              whileHover={{ scale: 1.1 }}
+              transition={{ duration: 0.3 }}
               onClick={() => setShowArchive((a) => !a)}
               aria-label={showArchive ? "Hide Archive" : "Show Archive"}
             >
               <FolderOpen className="w-4 h-4" /> {showArchive ? "Hide" : "Show"} Archive
-            </button>
+            </motion.button>
           </div>
 
           {undoTaskQueue.map((undoInfo, idx) => (
@@ -599,8 +613,10 @@ const App = () => {
               ) : (
                 <span>Task <b>{undoInfo.task.text}</b> deleted.</span>
               )}
-              <button
-                className="bg-blue-500 hover:bg-blue-700 text-white px-3 py-1 rounded-full font-semibold transition"
+              <motion.button
+                className="bg-blue-500 hover:bg-blue-700 text-white px-3 py-1 rounded-full font-semibold"
+                whileHover={{ scale: 1.1 }}
+                transition={{ duration: 0.3 }}
                 onClick={() =>
                   undoInfo.task.archived
                     ? handleUndoArchiveTask(undoInfo.task.id)
@@ -609,7 +625,7 @@ const App = () => {
                 aria-label={undoInfo.task.archived ? "Undo archive task" : "Undo delete task"}
               >
                 Undo
-              </button>
+              </motion.button>
             </div>
           ))}
 
@@ -621,21 +637,25 @@ const App = () => {
               style={{ bottom: `${4 + idx * 60}px` }}
             >
               <span>List <b>{undoInfo.list.name}</b> deleted.</span>
-              <button
-                className="bg-blue-500 hover:bg-blue-700 text-white px-3 py-1 rounded-full font-semibold transition"
+              <motion.button
+                className="bg-blue-500 hover:bg-blue-700 text-white px-3 py-1 rounded-full font-semibold"
+                whileHover={{ scale: 1.1 }}
+                transition={{ duration: 0.3 }}
                 onClick={() => handleUndoDeleteList(undoInfo.list.id)}
                 aria-label="Undo delete list"
               >
                 Undo
-              </button>
+              </motion.button>
             </div>
           ))}
 
           <div className="flex justify-center items-center mt-5 relative">
             <h1 className="text-4xl text-white font-bold mr-4">TO DO LIST</h1>
             <div className="relative flex items-center gap-4">
-              <button
+              <motion.button
                 className="focus:outline-none relative"
+                whileHover={{ scale: 1.1 }}
+                transition={{ duration: 0.3 }}
                 onClick={() => {
                   setShowNotifCenter(true);
                   setLastSeenNotifCount(notifications.length);
@@ -645,9 +665,7 @@ const App = () => {
                 aria-label="Show notifications"
               >
                 <Bell
-                  className={`w-8 h-8 transition-transform duration-300 text-yellow-400 ${
-                    badgeAnim ? "animate-bell-ring" : ""
-                  }`}
+                  className={`w-8 h-8 text-yellow-400 ${badgeAnim ? "animate-bell-ring" : ""}`}
                 />
                 {!showNotifCenter && unseenCount > 0 && (
                   <span
@@ -659,28 +677,32 @@ const App = () => {
                     {unseenCount}
                   </span>
                 )}
-              </button>
-              <button
-                className="focus:outline-none text-blue-400 hover:text-blue-600 transition-colors"
+              </motion.button>
+              <motion.button
+                className="focus:outline-none"
+                whileHover={{ scale: 1.1 }}
+                transition={{ duration: 0.3 }}
                 onClick={() => setShowInfoModal(true)}
                 aria-label="Show app info"
               >
-                <Info className="w-8 h-8" />
-              </button>
+                <Info className="w-8 h-8 text-blue-400" />
+              </motion.button>
             </div>
           </div>
 
           {showNotifCenter && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" role="dialog" aria-modal="true">
               <div className="bg-white rounded-xl shadow-2xl w-full max-w-xs sm:max-w-md mx-2 p-2 sm:p-4 relative overflow-auto">
-                <button
+                <motion.button
                   className="absolute top-2 right-2 text-gray-500 hover:text-black"
+                  whileHover={{ scale: 1.1 }}
+                  transition={{ duration: 0.3 }}
                   onClick={() => setShowNotifCenter(false)}
                   aria-label="Close notifications"
                   style={{ zIndex: 10 }}
                 >
                   <X className="w-6 h-6" />
-                </button>
+                </motion.button>
                 <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
                   <Bell className="w-5 h-5 text-yellow-400" /> Notifications
                 </h2>
@@ -747,13 +769,15 @@ const App = () => {
                     </li>
                   ))}
                 </ul>
-                <button
+                <motion.button
                   className="mt-4 w-full bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-full py-2 font-semibold"
+                  whileHover={{ scale: 1.1 }}
+                  transition={{ duration: 0.3 }}
                   onClick={() => clearNotifications()}
                   aria-label="Clear all notifications"
                 >
                   Clear All Notifications
-                </button>
+                </motion.button>
               </div>
             </div>
           )}
@@ -761,14 +785,16 @@ const App = () => {
           {selectedTask && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" role="dialog" aria-modal="true">
               <div className="bg-white rounded-xl shadow-2xl w-full max-w-xs sm:max-w-md mx-2 p-4 relative">
-                <button
+                <motion.button
                   className="absolute top-2 right-2 text-gray-500 hover:text-black"
+                  whileHover={{ scale: 1.1 }}
+                  transition={{ duration: 0.3 }}
                   onClick={() => setSelectedTask(null)}
                   aria-label="Close task details"
                   style={{ zIndex: 10 }}
                 >
                   <X className="w-6 h-6" />
-                </button>
+                </motion.button>
                 <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
                   <span className="inline-block w-2 h-2 rounded-full bg-blue-400" />
                   Task Details
@@ -805,8 +831,10 @@ const App = () => {
                   )}
                 </div>
                 {!selectedTask.archived && !selectedTask.done && (
-                  <button
+                  <motion.button
                     className="mt-4 w-full bg-green-500 hover:bg-green-600 text-white rounded py-2"
+                    whileHover={{ scale: 1.1 }}
+                    transition={{ duration: 0.3 }}
                     onClick={() => {
                       handleFinishTask(pagedTasks.findIndex((t) => t.id === selectedTask.id));
                       setSelectedTask(null);
@@ -814,7 +842,7 @@ const App = () => {
                     aria-label="Finish task"
                   >
                     Finish Task
-                  </button>
+                  </motion.button>
                 )}
               </div>
             </div>
@@ -822,15 +850,17 @@ const App = () => {
 
           {showInfoModal && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" role="dialog" aria-modal="true">
-              <div className="bg-white rounded-xl shadow-2xl w-full max-w-xs sm:max-w-md mx-2 p-4 relative">
-                <button
+              <div className="bg-white rounded-xl shadow-2xl w-full max-w-xs sm:max-w-md mx-2 p-4 relative overflow-hidden">
+                <motion.button
                   className="absolute top-2 right-2 text-gray-500 hover:text-black"
+                  whileHover={{ scale: 1.1 }}
+                  transition={{ duration: 0.3 }}
                   onClick={() => setShowInfoModal(false)}
                   aria-label="Close info modal"
                   style={{ zIndex: 10 }}
                 >
                   <X className="w-6 h-6" />
-                </button>
+                </motion.button>
                 <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
                   <Info className="w-5 h-5 text-blue-400" /> How to Use This App
                 </h2>
@@ -841,13 +871,15 @@ const App = () => {
                   <li>Check notifications (bell icon) for reminders and task updates.</li>
                   <li>Switch lists or view the archive using the buttons above.</li>
                 </ul>
-                <button
+                <motion.button
                   className="mt-4 w-full bg-blue-500 hover:bg-blue-600 text-white rounded py-2"
+                  whileHover={{ scale: 1.1 }}
+                  transition={{ duration: 0.3 }}
                   onClick={() => setShowInfoModal(false)}
                   aria-label="Close info modal"
                 >
                   Got It
-                </button>
+                </motion.button>
               </div>
             </div>
           )}
@@ -855,18 +887,20 @@ const App = () => {
           {!showArchive && (
             <div className="flex flex-col items-center gap-2 w-full mt-5">
               {lists.length === 0 ? (
-                <button
-                  className="w-full max-w-lg rounded-2xl px-4 py-4 text-center font-semibold shadow-md text-base bg-green-500 text-white hover:bg-green-600 transition"
+                <motion.button
+                  className="w-full max-w-lg rounded-2xl px-4 py-4 text-center font-semibold shadow-md text-base bg-green-500 text-white"
                   style={{
                     backdropFilter: "blur(6px)",
                     border: "1.5px solid #fff5",
                     textShadow: "0 1px 4px #000a",
                   }}
+                  whileHover={{ scale: 1.1 }}
+                  transition={{ duration: 0.3 }}
                   onClick={handleAddList}
                   aria-label="Add a new list to start adding tasks"
                 >
                   Add a new list first to start adding tasks.
-                </button>
+                </motion.button>
               ) : (
                 <form
                   className="w-full max-w-lg rounded-2xl px-3 py-2 flex flex-col sm:flex-row items-center justify-center gap-2 shadow-lg bg-white/70 backdrop-blur-md border border-gray-200"
@@ -887,10 +921,12 @@ const App = () => {
                     aria-label="Task text"
                   />
                   <div className="flex flex-col relative w-full sm:w-auto">
-                    <button
+                    <motion.button
                       type="button"
                       className="pick-due-date flex items-center px-3 py-2 h-10 rounded-lg bg-white border border-gray-200 text-gray-700 font-medium shadow-sm hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-400 transition w-full sm:w-auto whitespace-nowrap text-center leading-tight"
                       style={{ minWidth: 130, lineHeight: 1.1 }}
+                      whileHover={{ scale: 1.1 }}
+                      transition={{ duration: 0.3 }}
                       onClick={() =>
                         document.getElementById("dueDateInput").showPicker &&
                         document.getElementById("dueDateInput").showPicker()
@@ -917,7 +953,7 @@ const App = () => {
                         <path d="M16 2v4M8 2v4M3 10h18" stroke="currentColor" strokeWidth="2" />
                       </svg>
                       {newTask.dueDate ? new Date(newTask.dueDate).toLocaleString() : <span className="whitespace-nowrap">Pick due date</span>}
-                    </button>
+                    </motion.button>
                     <input
                       id="dueDateInput"
                       type="datetime-local"
@@ -955,13 +991,15 @@ const App = () => {
                       aria-label="Subtasks"
                     />
                   )}
-                  <button
+                  <motion.button
                     type="submit"
-                    className="w-10 h-10 flex items-center justify-center rounded-full bg-green-500 hover:bg-green-600 text-white shadow-lg transition"
+                    className="w-10 h-10 flex items-center justify-center rounded-full bg-green-500 hover:bg-green-600 text-white shadow-lg"
+                    whileHover={{ scale: 1.1 }}
+                    transition={{ duration: 0.3 }}
                     aria-label="Add task"
                   >
                     <Plus className="w-5 h-5" />
-                  </button>
+                  </motion.button>
                 </form>
               )}
             </div>
@@ -993,21 +1031,25 @@ const App = () => {
               ))}
               {totalPages > 1 && (
                 <div className="flex gap-2 mt-2">
-                  <button
+                  <motion.button
                     className="px-3 py-1 rounded bg-gray-200 text-gray-700"
+                    whileHover={{ scale: 1.1 }}
+                    transition={{ duration: 0.3 }}
                     disabled={page === 0}
                     onClick={() => setPage((p) => Math.max(0, p - 1))}
                   >
                     Prev
-                  </button>
+                  </motion.button>
                   <span className="text-white">{page + 1} / {totalPages}</span>
-                  <button
+                  <motion.button
                     className="px-3 py-1 rounded bg-gray-200 text-gray-700"
+                    whileHover={{ scale: 1.1 }}
+                    transition={{ duration: 0.3 }}
                     disabled={page === totalPages - 1}
                     onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
                   >
                     Next
-                  </button>
+                  </motion.button>
                 </div>
               )}
             </div>
