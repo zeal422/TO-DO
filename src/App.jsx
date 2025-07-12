@@ -1,16 +1,14 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useSwipeable } from 'react-swipeable';
+import { useSwipeable } from "react-swipeable";
 import "./index.css";
 import Preloader from "./Preloader";
 import TaskItem from "./TaskItem";
 import ArchiveView from "./ArchiveView";
 import useStore from "./store";
-import { ErrorBoundary } from 'react-error-boundary';
-import { Bell, Plus, Trash2, FolderPlus, FolderOpen, X } from "lucide-react";
+import { ErrorBoundary } from "react-error-boundary";
+import { Bell, Plus, Trash2, FolderPlus, FolderOpen, X, Info } from "lucide-react";
 
-const COLORS = [
-  "#d62338", "#357C74", "#4D4D4D", "#1C1C1C", "#2563eb"
-];
+const COLORS = ["#d62338", "#357C74", "#4D4D4D", "#1C1C1C", "#2563eb"];
 const MAX_LIST_NAME = 25;
 const UNDO_TIMEOUT = 6000;
 const LOCAL_STORAGE_LIMIT = 5 * 1024 * 1024;
@@ -20,6 +18,7 @@ function isTaskExpired(task) {
   if (!task.dueDate) return false;
   return !task.done && new Date(task.dueDate).getTime() < Date.now();
 }
+
 function formatDuration(ms) {
   const min = Math.round(ms / 60000);
   if (min >= 120) return `${Math.round(min / 60)} hours`;
@@ -27,7 +26,8 @@ function formatDuration(ms) {
   if (min > 1) return `${min} minutes`;
   return "a moment";
 }
-function setFaviconBadge(count) {
+
+function setFaviconBadge(count, targetIcon) {
   const favicon = document.querySelector("link[rel~='icon']");
   if (!favicon) return;
   if (!setFaviconBadge.originalHref) {
@@ -43,7 +43,7 @@ function setFaviconBadge(count) {
   img.onload = () => {
     ctx.clearRect(0, 0, size, size);
     ctx.drawImage(img, 0, 0, size, size);
-    if (count > 0) {
+    if (count > 0 && targetIcon === "bell") {
       ctx.beginPath();
       ctx.arc(size - 8, 8, 8, 0, 2 * Math.PI);
       ctx.fillStyle = "#e11d48";
@@ -52,18 +52,15 @@ function setFaviconBadge(count) {
       ctx.fillStyle = "#fff";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText(
-        count > 99 ? "99+" : count.toString(),
-        size - 8,
-        8
-      );
+      ctx.fillText(count > 99 ? "99+" : count.toString(), size - 8, 8);
     }
     favicon.href = canvas.toDataURL("image/png");
   };
-  if (count === 0) {
+  if (count === 0 || targetIcon !== "bell") {
     favicon.href = setFaviconBadge.originalHref;
   }
 }
+
 function sanitizeInput(str) {
   return String(str).replace(/[<>&"'`]/g, c => ({
     "<": "",
@@ -71,9 +68,10 @@ function sanitizeInput(str) {
     "&": "",
     "\"": "",
     "'": "",
-    "`": ""
-  }[c]));
+    "`": "",
+  })[c]);
 }
+
 function getStorageSize() {
   let total = 0;
   for (let key in localStorage) {
@@ -82,9 +80,11 @@ function getStorageSize() {
   }
   return total;
 }
+
 function uuid() {
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => {
-    const r = Math.random() * 16 | 0, v = c === "x" ? r : (r & 0x3 | 0x8);
+    const r = Math.random() * 16 | 0;
+    const v = c === "x" ? r : (r & 0x3 | 0x8);
     return v.toString(16);
   });
 }
@@ -121,7 +121,7 @@ const App = () => {
     addNotification,
     clearNotifications,
     setData,
-    clearArchive
+    clearArchive,
   } = useStore();
 
   const [bgColor, setBgColor] = useState(localStorage.getItem("bgColor") || COLORS[3]);
@@ -129,22 +129,19 @@ const App = () => {
   const [currentList, setCurrentList] = useState("");
   const [badgeAnim, setBadgeAnim] = useState(false);
   const [showArchive, setShowArchive] = useState(false);
-  const [newTask, setNewTask] = useState({
-    text: "",
-    dueDate: "",
-    subtasks: ""
-  });
+  const [newTask, setNewTask] = useState({ text: "", dueDate: "", subtasks: "" });
   const [dueDatePrompt, setDueDatePrompt] = useState(false);
   const [undoListQueue, setUndoListQueue] = useState([]);
   const [undoTaskQueue, setUndoTaskQueue] = useState([]);
   const [showNotifCenter, setShowNotifCenter] = useState(false);
   const [selectedTask, setSelectedTask] = useState(null);
   const [highlightedTask, setHighlightedTask] = useState(null);
+  const [showInfoModal, setShowInfoModal] = useState(false);
   const taskRefs = useRef({});
   const [page, setPage] = useState(0);
-  const [lastSeenNotifCount, setLastSeenNotifCount] = useState(() => {
-    return parseInt(localStorage.getItem("lastSeenNotifCount") || "0");
-  });
+  const [lastSeenNotifCount, setLastSeenNotifCount] = useState(() =>
+    parseInt(localStorage.getItem("lastSeenNotifCount") || "0")
+  );
 
   useEffect(() => {
     const savedNotifications = localStorage.getItem("notifications");
@@ -174,7 +171,7 @@ const App = () => {
       const checkTasks = () => {
         const reminderSent = JSON.parse(localStorage.getItem("reminderSent") || "{}");
         let nextCheck = 60000;
-        Object.keys(tasks).forEach(listId => {
+        Object.keys(tasks).forEach((listId) => {
           (tasks[listId] || []).forEach((task) => {
             if (task.dueDate && !task.done && !task.archived) {
               const due = new Date(task.dueDate).getTime();
@@ -187,7 +184,7 @@ const App = () => {
                   type: "expired",
                   message: `Task "${task.text}" has expired!`,
                   task,
-                  list: listId
+                  list: listId,
                 });
                 showBrowserNotification("Task Expired", `Task "${task.text}" has expired!`);
               }
@@ -200,9 +197,12 @@ const App = () => {
                     type: "reminder",
                     message: `Task "${task.text}" is due in ${formatDuration(timeLeft)}!`,
                     task,
-                    list: listId
+                    list: listId,
                   });
-                  showBrowserNotification("Task Reminder", `Task "${task.text}" is due in ${formatDuration(timeLeft)}!`);
+                  showBrowserNotification(
+                    "Task Reminder",
+                    `Task "${task.text}" is due in ${formatDuration(timeLeft)}!`
+                  );
                 }
               }
               if (timeLeft > 0 && timeLeft < nextCheck) {
@@ -229,7 +229,7 @@ const App = () => {
           id: Date.now() + Math.random(),
           type: "warning",
           message: "Storage almost full. Archive or export data soon.",
-          time: new Date().toISOString()
+          time: new Date().toISOString(),
         });
       }
     } catch (e) {
@@ -237,14 +237,14 @@ const App = () => {
         id: Date.now() + Math.random(),
         type: "error",
         message: "Storage quota exceeded! Delete some tasks/lists.",
-        time: new Date().toISOString()
+        time: new Date().toISOString(),
       });
     }
   }, [bgColor]);
 
   useEffect(() => {
     if (selectedTask) {
-      const handleKey = e => {
+      const handleKey = (e) => {
         if (e.key === "Escape") setSelectedTask(null);
       };
       window.addEventListener("keydown", handleKey);
@@ -254,17 +254,17 @@ const App = () => {
 
   useEffect(() => {
     if (showNotifCenter) {
-      const handleKey = e => {
+      const handleKey = (e) => {
         if (e.key === "Escape") setShowNotifCenter(false);
       };
       window.addEventListener("keydown", handleKey);
       setLastSeenNotifCount(notifications.length);
       localStorage.setItem("lastSeenNotifCount", notifications.length);
-      setFaviconBadge(0);
+      setFaviconBadge(0, "bell");
       return () => window.removeEventListener("keydown", handleKey);
     } else if (!showNotifCenter && lastSeenNotifCount >= 0) {
       const unseenCount = notifications.length > lastSeenNotifCount ? notifications.length - lastSeenNotifCount : 0;
-      setFaviconBadge(unseenCount);
+      setFaviconBadge(unseenCount, "bell");
     }
   }, [showNotifCenter, notifications.length, lastSeenNotifCount]);
 
@@ -279,7 +279,7 @@ const App = () => {
     }
   }, [highlightedTask, currentList]);
 
-  const completedCount = (tasks[currentList] || []).filter(t => t.done && !t.archived).length;
+  const completedCount = (tasks[currentList] || []).filter((t) => t.done && !t.archived).length;
   useEffect(() => {
     if (completedCount > 0) {
       setBadgeAnim(true);
@@ -297,7 +297,7 @@ const App = () => {
           id: Date.now() + Math.random(),
           type: "fallback",
           message: `${title}: ${body}`,
-          time: new Date().toISOString()
+          time: new Date().toISOString(),
         });
       }
     } else {
@@ -305,10 +305,11 @@ const App = () => {
         id: Date.now() + Math.random(),
         type: "fallback",
         message: `${title}: ${body}`,
-        time: new Date().toISOString()
+        time: new Date().toISOString(),
       });
     }
   }
+
   function pushNotification({ type, message, task, list }) {
     addNotification({
       id: Date.now() + Math.random(),
@@ -317,7 +318,7 @@ const App = () => {
       taskText: task?.text,
       dueDate: task?.dueDate,
       listId: list,
-      time: new Date().toISOString()
+      time: new Date().toISOString(),
     });
     setBadgeAnim(true);
     setTimeout(() => setBadgeAnim(false), 700);
@@ -331,7 +332,7 @@ const App = () => {
       setTimeout(() => setDueDatePrompt(false), 2000);
       return;
     }
-    if ((tasks[currentList] || []).some(t => t.text === sanitizedText && t.dueDate === newTask.dueDate)) {
+    if ((tasks[currentList] || []).some((t) => t.text === sanitizedText && t.dueDate === newTask.dueDate)) {
       alert("Duplicate task with same text and due date exists.");
       return;
     }
@@ -342,7 +343,7 @@ const App = () => {
       subtasks: newTask.subtasks || "",
       done: false,
       archived: false,
-      created: Date.now()
+      created: Date.now(),
     };
     addTask(currentList, task);
     setNewTask({ text: "", dueDate: "", subtasks: "" });
@@ -354,79 +355,93 @@ const App = () => {
     }, 100);
   }, [newTask, tasks, currentList, addTask]);
 
-  const handleFinishTask = useCallback((idx) => {
-    const globalIdx = page * TASKS_PER_PAGE + idx;
-    const originalTask = (tasks[currentList] || [])[globalIdx];
-    const updatedTask = {
-      ...originalTask,
-      done: true,
-      completedAt: new Date().toISOString() // Ensure completedAt is set here
-    };
-    toggleDone(currentList, globalIdx, updatedTask);
-    if (updatedTask.done) {
-      pushNotification({
-        type: "completed",
-        message: `Task "${updatedTask.text}" completed!`,
-        task: updatedTask,
-        list: currentList
+  const handleFinishTask = useCallback(
+    (idx) => {
+      const globalIdx = page * TASKS_PER_PAGE + idx;
+      const originalTask = (tasks[currentList] || [])[globalIdx];
+      const updatedTask = {
+        ...originalTask,
+        done: true,
+        completedAt: new Date().toISOString(),
+      };
+      toggleDone(currentList, globalIdx, updatedTask);
+      if (updatedTask.done) {
+        pushNotification({
+          type: "completed",
+          message: `Task "${updatedTask.text}" completed!`,
+          task: updatedTask,
+          list: currentList,
+        });
+        showBrowserNotification("Task Completed", `Task "${updatedTask.text}" completed!`);
+      }
+    },
+    [currentList, page, tasks, toggleDone, pushNotification]
+  );
+
+  const handleArchiveTask = useCallback(
+    (idx) => {
+      const globalIdx = page * TASKS_PER_PAGE + idx;
+      const taskToArchive = { ...((tasks[currentList] || [])[globalIdx]), archived: true };
+      archiveTask(currentList, globalIdx, taskToArchive);
+      setUndoTaskQueue((prevQueue) => {
+        const existing = prevQueue.find((u) => u.task.id === taskToArchive.id);
+        if (existing) {
+          clearTimeout(existing.timer);
+          return prevQueue.map((u) =>
+            u.task.id === taskToArchive.id
+              ? { ...u, timer: setTimeout(() => {
+                  setUndoTaskQueue((q2) => q2.filter((u2) => u2.task.id !== taskToArchive.id));
+                }, UNDO_TIMEOUT) }
+              : u
+          );
+        } else {
+          return [
+            ...prevQueue,
+            {
+              task: taskToArchive,
+              idx: globalIdx,
+              listId: currentList,
+              timer: setTimeout(() => {
+                setUndoTaskQueue((q2) => q2.filter((u) => u.task.id !== taskToArchive.id));
+              }, UNDO_TIMEOUT),
+            },
+          ];
+        }
       });
-      showBrowserNotification("Task Completed", `Task "${updatedTask.text}" completed!`);
-    }
-  }, [currentList, page, tasks, toggleDone, pushNotification]);
+    },
+    [currentList, tasks, page, archiveTask]
+  );
 
-  const handleArchiveTask = useCallback((idx) => {
-    const globalIdx = page * TASKS_PER_PAGE + idx;
-    const taskToArchive = { ...((tasks[currentList] || [])[globalIdx]), archived: true };
-    archiveTask(currentList, globalIdx, taskToArchive);
-    setUndoTaskQueue(prevQueue => {
-      const existing = prevQueue.find(u => u.task.id === taskToArchive.id);
-      if (existing) {
-        clearTimeout(existing.timer);
-        return prevQueue.map(u =>
-          u.task.id === taskToArchive.id ? { ...u, timer: setTimeout(() => {
-            setUndoTaskQueue(q2 => q2.filter(u2 => u2.task.id !== taskToArchive.id));
-          }, UNDO_TIMEOUT) } : u
-        );
-      } else {
-        return [
-          ...prevQueue,
-          {
-            task: taskToArchive,
-            idx: globalIdx,
-            listId: currentList,
-            timer: setTimeout(() => {
-              setUndoTaskQueue(q2 => q2.filter(u => u.task.id !== taskToArchive.id));
-            }, UNDO_TIMEOUT)
-          }
-        ];
-      }
-    });
-  }, [currentList, tasks, page, archiveTask]);
+  const handleUndoArchiveTask = useCallback(
+    (taskId) => {
+      const undoInfo = undoTaskQueue.find((u) => u.task.id === taskId);
+      if (!undoInfo) return;
+      clearTimeout(undoInfo.timer);
+      undoArchiveTask(undoInfo.listId, undoInfo.task, undoInfo.idx);
+      setUndoTaskQueue((q) => q.filter((u) => u.task.id !== taskId));
+    },
+    [undoTaskQueue, undoArchiveTask]
+  );
 
-  const handleUndoArchiveTask = useCallback((taskId) => {
-    const undoInfo = undoTaskQueue.find(u => u.task.id === taskId);
-    if (!undoInfo) return;
-    clearTimeout(undoInfo.timer);
-    undoArchiveTask(undoInfo.listId, undoInfo.task, undoInfo.idx);
-    setUndoTaskQueue(q => q.filter(u => u.task.id !== taskId));
-  }, [undoTaskQueue, undoArchiveTask]);
-
-  const handleRemoveTask = useCallback((idx) => {
-    const globalIdx = page * TASKS_PER_PAGE + idx;
-    const taskToRemove = (tasks[currentList] || [])[globalIdx];
-    removeTask(currentList, globalIdx);
-    setUndoTaskQueue(prevQueue => [
-      ...prevQueue,
-      {
-        task: taskToRemove,
-        idx: globalIdx,
-        listId: currentList,
-        timer: setTimeout(() => {
-          setUndoTaskQueue(q => q.filter(u => u.task.id !== taskToRemove.id));
-        }, UNDO_TIMEOUT)
-      }
-    ]);
-  }, [currentList, page, tasks, removeTask]);
+  const handleRemoveTask = useCallback(
+    (idx) => {
+      const globalIdx = page * TASKS_PER_PAGE + idx;
+      const taskToRemove = (tasks[currentList] || [])[globalIdx];
+      removeTask(currentList, globalIdx);
+      setUndoTaskQueue((prevQueue) => [
+        ...prevQueue,
+        {
+          task: taskToRemove,
+          idx: globalIdx,
+          listId: currentList,
+          timer: setTimeout(() => {
+            setUndoTaskQueue((q) => q.filter((u) => u.task.id !== taskToRemove.id));
+          }, UNDO_TIMEOUT),
+        },
+      ]);
+    },
+    [currentList, page, tasks, removeTask]
+  );
 
   const handleAddList = useCallback(() => {
     let name = prompt(`List name? (max ${MAX_LIST_NAME} characters)`);
@@ -436,7 +451,7 @@ const App = () => {
       alert(`List name too long! Max ${MAX_LIST_NAME} characters.`);
       return;
     }
-    if (lists.some(l => l.name === name)) {
+    if (lists.some((l) => l.name === name)) {
       alert("A list with this name already exists.");
       return;
     }
@@ -445,43 +460,52 @@ const App = () => {
     setCurrentList(id);
   }, [lists, addList]);
 
-  const handleRemoveList = useCallback((id) => {
-    if (!window.confirm("Delete this list and all its tasks?")) return;
-    const deletedList = lists.find(l => l.id === id);
-    const deletedTasks = tasks[id] || [];
-    const deletedArchive = archive[id] || [];
-    removeList(id);
-    setUndoListQueue(q => [
-      ...q,
-      {
-        list: deletedList,
-        tasks: deletedTasks,
-        archive: deletedArchive,
-        prevCurrentList: currentList,
-        timer: setTimeout(() => {
-          setUndoListQueue(q2 => q2.filter(u => u.list.id !== id));
-        }, UNDO_TIMEOUT)
-      }
-    ]);
-    setCurrentList(lists.length > 0 ? lists[0].id : null);
-  }, [lists, tasks, archive, currentList, removeList]);
+  const handleRemoveList = useCallback(
+    (id) => {
+      if (!window.confirm("Delete this list and all its tasks?")) return;
+      const deletedList = lists.find((l) => l.id === id);
+      const deletedTasks = tasks[id] || [];
+      const deletedArchive = archive[id] || [];
+      removeList(id);
+      setUndoListQueue((q) => [
+        ...q,
+        {
+          list: deletedList,
+          tasks: deletedTasks,
+          archive: deletedArchive,
+          prevCurrentList: currentList,
+          timer: setTimeout(() => {
+            setUndoListQueue((q2) => q2.filter((u) => u.list.id !== id));
+          }, UNDO_TIMEOUT),
+        },
+      ]);
+      setCurrentList(lists.length > 0 ? lists[0].id : null);
+    },
+    [lists, tasks, archive, currentList, removeList]
+  );
 
-  const handleUndoDeleteList = useCallback((listId) => {
-    const undoInfo = undoListQueue.find(u => u.list.id === listId);
-    if (!undoInfo) return;
-    clearTimeout(undoInfo.timer);
-    undoDeleteList(undoInfo.list, undoInfo.tasks, undoInfo.archive);
-    setCurrentList(undoInfo.list.id);
-    setUndoListQueue(q => q.filter(u => u.list.id !== listId));
-  }, [undoListQueue, undoDeleteList]);
+  const handleUndoDeleteList = useCallback(
+    (listId) => {
+      const undoInfo = undoListQueue.find((u) => u.list.id === listId);
+      if (!undoInfo) return;
+      clearTimeout(undoInfo.timer);
+      undoDeleteList(undoInfo.list, undoInfo.tasks, undoInfo.archive);
+      setCurrentList(undoInfo.list.id);
+      setUndoListQueue((q) => q.filter((u) => u.list.id !== listId));
+    },
+    [undoListQueue, undoDeleteList]
+  );
 
-  const handleUndoRemoveTask = useCallback((taskId) => {
-    const undoInfo = undoTaskQueue.find(u => u.task.id === taskId);
-    if (!undoInfo) return;
-    clearTimeout(undoInfo.timer);
-    addTask(undoInfo.listId, undoInfo.task); // Re-add the task at the end
-    setUndoTaskQueue(q => q.filter(u => u.task.id !== taskId));
-  }, [undoTaskQueue, addTask]);
+  const handleUndoRemoveTask = useCallback(
+    (taskId) => {
+      const undoInfo = undoTaskQueue.find((u) => u.task.id === taskId);
+      if (!undoInfo) return;
+      clearTimeout(undoInfo.timer);
+      addTask(undoInfo.listId, undoInfo.task);
+      setUndoTaskQueue((q) => q.filter((u) => u.task.id !== taskId));
+    },
+    [undoTaskQueue, addTask]
+  );
 
   const handleDeleteAllArchived = useCallback(() => {
     if (window.confirm("Are you sure you want to delete all archived tasks? This action cannot be undone.")) {
@@ -493,16 +517,13 @@ const App = () => {
 
   if (loading) return <Preloader />;
 
-  const filteredTasks = (tasks[currentList] || []).filter(t => !t.archived);
+  const filteredTasks = (tasks[currentList] || []).filter((t) => !t.archived);
   const totalPages = Math.ceil(filteredTasks.length / TASKS_PER_PAGE);
   const pagedTasks = filteredTasks.slice(page * TASKS_PER_PAGE, (page + 1) * TASKS_PER_PAGE);
 
   return (
     <ErrorBoundary FallbackComponent={ErrorFallback} onReset={() => window.location.reload()}>
-      <div
-        className="min-h-screen transition-colors duration-300 relative px-1 sm:px-2 md:px-4"
-        style={{ backgroundColor: bgColor }}
-      >
+      <div className="min-h-screen transition-colors duration-300 relative px-1 sm:px-2 md:px-4" style={{ backgroundColor: bgColor }}>
         <>
           <div className="flex justify-center pt-8">
             {COLORS.map((color) => (
@@ -512,16 +533,14 @@ const App = () => {
                   style={{ backgroundColor: color }}
                   onClick={() => setBgColor(color)}
                   aria-label={`Set background color to ${color}`}
-                ></button>
-                {bgColor === color && (
-                  <div className="absolute top-3 left-1/2 transform -translate-x-1/2 text-white">▾</div>
-                )}
+                />
+                {bgColor === color && <div className="absolute top-3 left-1/2 transform -translate-x-1/2 text-white">▾</div>}
               </div>
             ))}
           </div>
 
           <div className="flex justify-center mt-4 gap-2 flex-wrap">
-            {lists.map(list => (
+            {lists.map((list) => (
               <button
                 key={list.id}
                 className="px-3 py-1 rounded-full font-semibold transition text-sm sm:text-base"
@@ -530,15 +549,18 @@ const App = () => {
                   background: currentList === list.id ? "#fff" : "rgba(0,0,0,0.3)",
                   color: currentList === list.id ? "#000" : "#fff",
                   boxShadow: currentList === list.id ? "0 1px 4px rgba(0,0,0,0.08)" : undefined,
-                  border: "none"
+                  border: "none",
                 }}
-                onClick={() => { setCurrentList(list.id); setPage(0); }}
+                onClick={() => {
+                  setCurrentList(list.id);
+                  setPage(0);
+                }}
                 aria-label={`Switch to list ${list.name}`}
               >
                 {list.name}
                 <Trash2
                   className="inline ml-2 w-4 h-4 text-red-400 hover:text-red-600"
-                  onClick={e => {
+                  onClick={(e) => {
                     e.stopPropagation();
                     handleRemoveList(list.id);
                   }}
@@ -558,7 +580,7 @@ const App = () => {
               className={`px-2 py-1 rounded-full flex items-center gap-1 text-sm sm:text-base ${
                 showArchive ? "bg-[#fbbf24] text-black" : "bg-black/30 text-white"
               }`}
-              onClick={() => setShowArchive(a => !a)}
+              onClick={() => setShowArchive((a) => !a)}
               aria-label={showArchive ? "Hide Archive" : "Show Archive"}
             >
               <FolderOpen className="w-4 h-4" /> {showArchive ? "Hide" : "Show"} Archive
@@ -573,17 +595,17 @@ const App = () => {
               style={{ bottom: `${4 + idx * 60}px` }}
             >
               {undoInfo.task.archived ? (
-                <span>
-                  Task <b>{undoInfo.task.text}</b> archived.
-                </span>
+                <span>Task <b>{undoInfo.task.text}</b> archived.</span>
               ) : (
-                <span>
-                  Task <b>{undoInfo.task.text}</b> deleted.
-                </span>
+                <span>Task <b>{undoInfo.task.text}</b> deleted.</span>
               )}
               <button
                 className="bg-blue-500 hover:bg-blue-700 text-white px-3 py-1 rounded-full font-semibold transition"
-                onClick={() => undoInfo.task.archived ? handleUndoArchiveTask(undoInfo.task.id) : handleUndoRemoveTask(undoInfo.task.id)}
+                onClick={() =>
+                  undoInfo.task.archived
+                    ? handleUndoArchiveTask(undoInfo.task.id)
+                    : handleUndoRemoveTask(undoInfo.task.id)
+                }
                 aria-label={undoInfo.task.archived ? "Undo archive task" : "Undo delete task"}
               >
                 Undo
@@ -598,9 +620,7 @@ const App = () => {
               role="alert"
               style={{ bottom: `${4 + idx * 60}px` }}
             >
-              <span>
-                List <b>{undoInfo.list.name}</b> deleted.
-              </span>
+              <span>List <b>{undoInfo.list.name}</b> deleted.</span>
               <button
                 className="bg-blue-500 hover:bg-blue-700 text-white px-3 py-1 rounded-full font-semibold transition"
                 onClick={() => handleUndoDeleteList(undoInfo.list.id)}
@@ -613,30 +633,39 @@ const App = () => {
 
           <div className="flex justify-center items-center mt-5 relative">
             <h1 className="text-4xl text-white font-bold mr-4">TO DO LIST</h1>
-            <div className="relative">
+            <div className="relative flex items-center gap-4">
               <button
-                className="focus:outline-none"
+                className="focus:outline-none relative"
                 onClick={() => {
                   setShowNotifCenter(true);
                   setLastSeenNotifCount(notifications.length);
                   localStorage.setItem("lastSeenNotifCount", notifications.length);
-                  setFaviconBadge(0);
+                  setFaviconBadge(0, "bell");
                 }}
                 aria-label="Show notifications"
               >
                 <Bell
-                  className={`w-8 h-8 transition-transform duration-300 text-yellow-400 ${badgeAnim ? "animate-bell-ring" : ""}`}
+                  className={`w-8 h-8 transition-transform duration-300 text-yellow-400 ${
+                    badgeAnim ? "animate-bell-ring" : ""
+                  }`}
                 />
                 {!showNotifCenter && unseenCount > 0 && (
                   <span
-                    className={`absolute -top-2 -right-2 bg-red-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center z-10
-                      ${badgeAnim ? "animate-ping-short" : ""}
-                    `}
+                    className={`absolute -top-2 -right-2 bg-red-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center z-10 ${
+                      badgeAnim ? "animate-ping-short" : ""
+                    }`}
                     aria-label={`${unseenCount} new notifications`}
                   >
                     {unseenCount}
                   </span>
                 )}
+              </button>
+              <button
+                className="focus:outline-none text-blue-400 hover:text-blue-600 transition-colors"
+                onClick={() => setShowInfoModal(true)}
+                aria-label="Show app info"
+              >
+                <Info className="w-8 h-8" />
               </button>
             </div>
           </div>
@@ -669,7 +698,7 @@ const App = () => {
                           setShowNotifCenter(false);
                           const currentTasks = tasks[notif.listId] || [];
                           const idx = currentTasks.findIndex(
-                            t => t.text === notif.taskText && t.dueDate === notif.dueDate
+                            (t) => t.text === notif.taskText && t.dueDate === notif.dueDate
                           );
                           if (idx !== -1) {
                             setHighlightedTask({ listId: notif.listId, idx });
@@ -686,8 +715,8 @@ const App = () => {
                         }
                       }}
                       title={
-                        lists.find(l => l.id === notif.listId)
-                          ? `Go to list: ${lists.find(l => l.id === notif.listId).name}`
+                        lists.find((l) => l.id === notif.listId)
+                          ? `Go to list: ${lists.find((l) => l.id === notif.listId).name}`
                           : "Go to list"
                       }
                       tabIndex={0}
@@ -695,19 +724,19 @@ const App = () => {
                     >
                       <div className="flex items-center gap-2">
                         {notif.type === "reminder" && (
-                          <span className="inline-block w-2 h-2 rounded-full bg-blue-400" title="Reminder"></span>
+                          <span className="inline-block w-2 h-2 rounded-full bg-blue-400" title="Reminder" />
                         )}
                         {notif.type === "expired" && (
-                          <span className="inline-block w-2 h-2 rounded-full bg-red-500" title="Expired"></span>
+                          <span className="inline-block w-2 h-2 rounded-full bg-red-500" title="Expired" />
                         )}
                         {notif.type === "completed" && (
-                          <span className="inline-block w-2 h-2 rounded-full bg-green-500" title="Completed"></span>
+                          <span className="inline-block w-2 h-2 rounded-full bg-green-500" title="Completed" />
                         )}
                         <span className="text-sm">
                           {notif.message}
-                          {lists.find(l => l.id === notif.listId) && (
+                          {lists.find((l) => l.id === notif.listId) && (
                             <span className="ml-2 text-xs text-gray-500">
-                              [List: {lists.find(l => l.id === notif.listId).name}]
+                              [List: {lists.find((l) => l.id === notif.listId).name}]
                             </span>
                           )}
                         </span>
@@ -730,66 +759,98 @@ const App = () => {
           )}
 
           {selectedTask && (
-  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" role="dialog" aria-modal="true">
-    <div className="bg-white rounded-xl shadow-2xl w-full max-w-xs sm:max-w-md mx-2 p-4 relative">
-      <button
-        className="absolute top-2 right-2 text-gray-500 hover:text-black"
-        onClick={() => setSelectedTask(null)}
-        aria-label="Close task details"
-        style={{ zIndex: 10 }}
-      >
-        <X className="w-6 h-6" />
-      </button>
-      <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
-        <span className="inline-block w-2 h-2 rounded-full bg-blue-400"></span>
-        Task Details
-      </h2>
-      <div className="mb-2">
-        <span className="font-semibold">Text:</span>
-        <div className="break-words">{selectedTask.text}</div>
-      </div>
-      {selectedTask.dueDate && (
-        <div className="mb-2">
-          <span className="font-semibold">Due:</span> {new Date(selectedTask.dueDate).toLocaleString()}
-        </div>
-      )}
-      {selectedTask.subtasks && (
-        <div className="mb-2">
-          <span className="font-semibold">Subtasks:</span> {selectedTask.subtasks}
-        </div>
-      )}
-      <div className="mb-2">
-        <span className="font-semibold">Status:</span>{" "}
-        {selectedTask.done ? (
-          <>
-            Completed
-            {selectedTask.completedAt && !isNaN(Date.parse(selectedTask.completedAt)) && (
-              <> {new Date(selectedTask.completedAt).toLocaleString()}</>
-            )}
-          </>
-        ) : isTaskExpired(selectedTask) ? (
-          "Expired"
-        ) : selectedTask.archived ? (
-          "Archived"
-        ) : (
-          "Active"
-        )}
-      </div>
-      {!selectedTask.archived && !selectedTask.done && (
-        <button
-          className="mt-4 w-full bg-green-500 hover:bg-green-600 text-white rounded py-2"
-          onClick={() => {
-            handleFinishTask(pagedTasks.findIndex(t => t.id === selectedTask.id));
-            setSelectedTask(null);
-          }}
-          aria-label="Finish task"
-        >
-          Finish Task
-        </button>
-      )}
-    </div>
-  </div>
-)}
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" role="dialog" aria-modal="true">
+              <div className="bg-white rounded-xl shadow-2xl w-full max-w-xs sm:max-w-md mx-2 p-4 relative">
+                <button
+                  className="absolute top-2 right-2 text-gray-500 hover:text-black"
+                  onClick={() => setSelectedTask(null)}
+                  aria-label="Close task details"
+                  style={{ zIndex: 10 }}
+                >
+                  <X className="w-6 h-6" />
+                </button>
+                <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+                  <span className="inline-block w-2 h-2 rounded-full bg-blue-400" />
+                  Task Details
+                </h2>
+                <div className="mb-2">
+                  <span className="font-semibold">Text:</span>
+                  <div className="break-words">{selectedTask.text}</div>
+                </div>
+                {selectedTask.dueDate && (
+                  <div className="mb-2">
+                    <span className="font-semibold">Due:</span> {new Date(selectedTask.dueDate).toLocaleString()}
+                  </div>
+                )}
+                {selectedTask.subtasks && (
+                  <div className="mb-2">
+                    <span className="font-semibold">Subtasks:</span> {selectedTask.subtasks}
+                  </div>
+                )}
+                <div className="mb-2">
+                  <span className="font-semibold">Status:</span>{" "}
+                  {selectedTask.done ? (
+                    <>
+                      Completed
+                      {selectedTask.completedAt && !isNaN(Date.parse(selectedTask.completedAt)) && (
+                        <> {new Date(selectedTask.completedAt).toLocaleString()}</>
+                      )}
+                    </>
+                  ) : isTaskExpired(selectedTask) ? (
+                    "Expired"
+                  ) : selectedTask.archived ? (
+                    "Archived"
+                  ) : (
+                    "Active"
+                  )}
+                </div>
+                {!selectedTask.archived && !selectedTask.done && (
+                  <button
+                    className="mt-4 w-full bg-green-500 hover:bg-green-600 text-white rounded py-2"
+                    onClick={() => {
+                      handleFinishTask(pagedTasks.findIndex((t) => t.id === selectedTask.id));
+                      setSelectedTask(null);
+                    }}
+                    aria-label="Finish task"
+                  >
+                    Finish Task
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {showInfoModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" role="dialog" aria-modal="true">
+              <div className="bg-white rounded-xl shadow-2xl w-full max-w-xs sm:max-w-md mx-2 p-4 relative">
+                <button
+                  className="absolute top-2 right-2 text-gray-500 hover:text-black"
+                  onClick={() => setShowInfoModal(false)}
+                  aria-label="Close info modal"
+                  style={{ zIndex: 10 }}
+                >
+                  <X className="w-6 h-6" />
+                </button>
+                <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+                  <Info className="w-5 h-5 text-blue-400" /> How to Use This App
+                </h2>
+                <ul className="list-disc pl-5 space-y-2 text-gray-700">
+                  <li>Add a new list by clicking "Add List" to organize your tasks.</li>
+                  <li>Create tasks with text and due dates using the form below the lists.</li>
+                  <li>Finish or archive tasks by clicking the options on each task card.</li>
+                  <li>Check notifications (bell icon) for reminders and task updates.</li>
+                  <li>Switch lists or view the archive using the buttons above.</li>
+                </ul>
+                <button
+                  className="mt-4 w-full bg-blue-500 hover:bg-blue-600 text-white rounded py-2"
+                  onClick={() => setShowInfoModal(false)}
+                  aria-label="Close info modal"
+                >
+                  Got It
+                </button>
+              </div>
+            </div>
+          )}
 
           {!showArchive && (
             <div className="flex flex-col items-center gap-2 w-full mt-5">
@@ -799,7 +860,7 @@ const App = () => {
                   style={{
                     backdropFilter: "blur(6px)",
                     border: "1.5px solid #fff5",
-                    textShadow: "0 1px 4px #000a"
+                    textShadow: "0 1px 4px #000a",
                   }}
                   onClick={handleAddList}
                   aria-label="Add a new list to start adding tasks"
@@ -810,7 +871,7 @@ const App = () => {
                 <form
                   className="w-full max-w-lg rounded-2xl px-3 py-2 flex flex-col sm:flex-row items-center justify-center gap-2 shadow-lg bg-white/70 backdrop-blur-md border border-gray-200"
                   style={{ minHeight: 56 }}
-                  onSubmit={e => {
+                  onSubmit={(e) => {
                     e.preventDefault();
                     handleAddTask();
                   }}
@@ -820,7 +881,7 @@ const App = () => {
                     value={newTask.text}
                     placeholder="Enter your task here..."
                     className="flex-grow min-w-[120px] px-3 py-2 text-sm md:text-base bg-white text-gray-900 outline-none rounded-lg placeholder-gray-500 border border-gray-200 focus:ring-2 focus:ring-offset-2 focus:ring-black/20 transition w-full sm:w-auto"
-                    onChange={e => setNewTask(nt => ({ ...nt, text: e.target.value }))}
+                    onChange={(e) => setNewTask((nt) => ({ ...nt, text: e.target.value }))}
                     maxLength={100}
                     required
                     aria-label="Task text"
@@ -829,33 +890,55 @@ const App = () => {
                     <button
                       type="button"
                       className="pick-due-date flex items-center px-3 py-2 h-10 rounded-lg bg-white border border-gray-200 text-gray-700 font-medium shadow-sm hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-400 transition w-full sm:w-auto whitespace-nowrap text-center leading-tight"
-                      style={{
-                        minWidth: 130, // Ensures enough width for one line on desktop
-                        lineHeight: 1.1, // Tighter if it wraps
-                      }}
-                      onClick={() => document.getElementById('dueDateInput').showPicker && document.getElementById('dueDateInput').showPicker()}
+                      style={{ minWidth: 130, lineHeight: 1.1 }}
+                      onClick={() =>
+                        document.getElementById("dueDateInput").showPicker &&
+                        document.getElementById("dueDateInput").showPicker()
+                      }
                       aria-label="Pick due date"
                     >
-                      <svg className="w-4 h-4 mr-2 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                        <rect x="3" y="4" width="18" height="18" rx="4" stroke="currentColor" strokeWidth="2" fill="none"/>
-                        <path d="M16 2v4M8 2v4M3 10h18" stroke="currentColor" strokeWidth="2"/>
+                      <svg
+                        className="w-4 h-4 mr-2 text-gray-400"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        viewBox="0 0 24 24"
+                      >
+                        <rect
+                          x="3"
+                          y="4"
+                          width="18"
+                          height="18"
+                          rx="4"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          fill="none"
+                        />
+                        <path d="M16 2v4M8 2v4M3 10h18" stroke="currentColor" strokeWidth="2" />
                       </svg>
-                      {newTask.dueDate
-                        ? new Date(newTask.dueDate).toLocaleString()
-                        : <span className="whitespace-nowrap">Pick due date</span>
-                      }
+                      {newTask.dueDate ? new Date(newTask.dueDate).toLocaleString() : <span className="whitespace-nowrap">Pick due date</span>}
                     </button>
                     <input
                       id="dueDateInput"
                       type="datetime-local"
                       className="hidden"
                       value={newTask.dueDate}
-                      onChange={e => setNewTask(nt => ({ ...nt, dueDate: e.target.value }))}
+                      onChange={(e) => setNewTask((nt) => ({ ...nt, dueDate: e.target.value }))}
                     />
                     {dueDatePrompt && (
                       <div className="absolute left-0 top-full mt-1 bg-white border border-yellow-400 rounded shadow px-3 py-2 flex items-center text-yellow-700 text-sm z-50">
-                        <svg className="w-5 h-5 mr-2 text-yellow-500" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        <svg
+                          className="w-5 h-5 mr-2 text-yellow-500"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                          />
                         </svg>
                         Please fill out this field.
                       </div>
@@ -867,7 +950,7 @@ const App = () => {
                       className="px-2 py-2 rounded-lg text-xs text-gray-900 min-w-[120px] w-full sm:w-auto flex-shrink-0 border border-gray-200 bg-white focus:ring-2 focus:ring-offset-2 focus:ring-black/20"
                       placeholder="Subtasks (comma separated)"
                       value={newTask.subtasks}
-                      onChange={e => setNewTask(nt => ({ ...nt, subtasks: e.target.value }))}
+                      onChange={(e) => setNewTask((nt) => ({ ...nt, subtasks: e.target.value }))}
                       maxLength={100}
                       aria-label="Subtasks"
                     />
@@ -898,7 +981,11 @@ const App = () => {
                   finishTask={() => handleFinishTask(index)}
                   archiveTask={() => handleArchiveTask(index)}
                   removeTask={() => handleRemoveTask(index)}
-                  isHighlighted={highlightedTask && highlightedTask.listId === currentList && highlightedTask.idx === page * TASKS_PER_PAGE + index}
+                  isHighlighted={
+                    highlightedTask &&
+                    highlightedTask.listId === currentList &&
+                    highlightedTask.idx === page * TASKS_PER_PAGE + index
+                  }
                   taskRefs={taskRefs}
                   setSelectedTask={setSelectedTask}
                   isDone={task.done}
@@ -909,7 +996,7 @@ const App = () => {
                   <button
                     className="px-3 py-1 rounded bg-gray-200 text-gray-700"
                     disabled={page === 0}
-                    onClick={() => setPage(p => Math.max(0, p - 1))}
+                    onClick={() => setPage((p) => Math.max(0, p - 1))}
                   >
                     Prev
                   </button>
@@ -917,7 +1004,7 @@ const App = () => {
                   <button
                     className="px-3 py-1 rounded bg-gray-200 text-gray-700"
                     disabled={page === totalPages - 1}
-                    onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+                    onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
                   >
                     Next
                   </button>
@@ -939,7 +1026,7 @@ const App = () => {
           <footer className="text-white text-center mt-10 text-sm">
             <p>Developed by VectorMedia</p>
             <p className="opacity-70">©{new Date().getFullYear()} - All rights reserved</p>
-            <p className="opacity-70">V1.2</p>
+            <p className="opacity-70">V1.3</p>
           </footer>
         </>
       </div>
