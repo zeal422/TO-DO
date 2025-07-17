@@ -11,6 +11,8 @@
   },
   "dependencies": {
     "framer-motion": "^12.23.3",
+    "jspdf": "^3.0.1",
+    "jspdf-autotable": "^5.0.2",
     "lucide-react": "^0.514.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",

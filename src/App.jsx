@@ -8,6 +8,7 @@ import ArchiveView from "./ArchiveView";
 import useStore from "./store";
 import { ErrorBoundary } from "react-error-boundary";
 import { Bell, Plus, Trash2, FolderPlus, FolderOpen, X, Info } from "lucide-react";
+import { exportTasksToPDF } from "./exportUtils"; // New import
 
 const COLORS = ["#d62338", "#357C74", "#4D4D4D", "#1C1C1C", "#2563eb"];
 const MAX_LIST_NAME = 25;
@@ -603,6 +604,15 @@ const App = () => {
               aria-label={showArchive ? "Hide Archive" : "Show Archive"}
             >
               <FolderOpen className="w-4 h-4" /> {showArchive ? "Hide" : "Show"} Archive
+            </motion.button>
+            <motion.button
+              className="px-2 py-1 rounded-full bg-blue-500 text-white flex items-center gap-1 text-sm sm:text-base"
+              whileHover={{ scale: 1.1 }}
+              transition={{ duration: 0.3 }}
+              onClick={() => exportTasksToPDF(lists, tasks, archive)}
+              aria-label="Export tasks to PDF"
+            >
+              Export to PDF
             </motion.button>
           </div>
 
