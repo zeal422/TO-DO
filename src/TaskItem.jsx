@@ -11,21 +11,21 @@ const TaskItem = ({
   isHighlighted,
   taskRefs,
   setSelectedTask,
-  isDone
+  isDone,
 }) => {
   const taskRef = useRef(null);
   const [progress, setProgress] = useState(0);
+  const [completionProgress, setCompletionProgress] = useState(task.done ? 100 : 0);
 
   useEffect(() => {
     taskRefs.current[globalIdx] = taskRef.current;
-    if (!task.archived && task.dueDate) { // Show progress bar if dueDate exists and not archived
+    if (!task.archived && task.dueDate) {
       const updateProgress = () => {
         const now = Date.now();
         const due = new Date(task.dueDate).getTime();
         const totalDuration = due - now;
         if (totalDuration <= 0 && !isDone) {
           setProgress(100);
-          // Do not auto-complete on expiration
           return;
         }
         const elapsed = Math.max(0, due - now);
@@ -42,6 +42,14 @@ const TaskItem = ({
     }
   }, [globalIdx, taskRefs, task, finishTask, isDone]);
 
+  useEffect(() => {
+    if (task.done && completionProgress < 100) {
+      setCompletionProgress(100);
+    } else if (!task.done && completionProgress > 0) {
+      setCompletionProgress(0);
+    }
+  }, [task.done, completionProgress]);
+
   const isExpired = task.dueDate && new Date(task.dueDate).getTime() <= Date.now() && !isDone && !task.archived;
 
   return (
@@ -50,18 +58,27 @@ const TaskItem = ({
       className={`relative w-full max-w-lg rounded-full px-4 py-2 shadow-md transition-all duration-300 ${
         isHighlighted ? "bg-yellow-100" : ""
       } ${
-        isDone && !task.archived && !isExpired ? "bg-green-100 opacity-80" : "" // Green background only if isDone is true
+        isDone && !task.archived && !isExpired ? "bg-green-100 opacity-80" : ""
       } ${
-        (task.archived || isExpired) ? "opacity-60 bg-red-100" : "bg-white"
+        (task.archived || isExpired) ? "bg-red-500" : "bg-white"
       }`}
       style={{ minHeight: "48px", position: "relative", overflow: "hidden" }}
     >
-      {!isDone && !task.archived && task.dueDate && ( // Show progress bar only for active tasks with dueDate
+      {!isDone && !task.archived && task.dueDate && (
         <div
           className="absolute top-0 left-0 h-full bg-blue-200 opacity-75 rounded-full transition-all duration-1000 ease-in-out"
           style={{
             width: `${progress}%`,
-            zIndex: 0, // Behind content
+            zIndex: 0,
+          }}
+        />
+      )}
+      {isDone && !task.archived && (
+        <div
+          className="absolute top-0 left-0 h-full bg-green-500 opacity-75 rounded-full transition-all duration-400 ease-in-out"
+          style={{
+            width: `${completionProgress}%`,
+            zIndex: 0,
           }}
         />
       )}
@@ -77,7 +94,7 @@ const TaskItem = ({
             }`}
             onClick={() => {
               if (!isDone && !isExpired && !task.archived) {
-                finishTask(index); // Pass index to finishTask
+                finishTask(index);
               }
             }}
             disabled={isDone || isExpired || task.archived}
@@ -99,7 +116,7 @@ const TaskItem = ({
               <CheckCircle className="w-4 h-4 text-white" />
             )}
             {!isDone && !isExpired && !task.archived && (
-              <CheckCircle className="w-4 h-4 text-gray-400" style={{ opacity: 0.5 }} /> // Empty circle effect
+              <CheckCircle className="w-4 h-4 text-gray-400" style={{ opacity: 0.5 }} />
             )}
           </button>
           <div
@@ -119,12 +136,12 @@ const TaskItem = ({
           </div>
           <div className="flex items-center space-x-2 flex-shrink-0 task-item-date" style={{ display: "flex", alignItems: "center" }}>
             {task.dueDate && (
-              <span className="text-xs text-gray-500 flex items-center">
+              <span className="text-xs text-black flex items-center">
                 {new Date(task.dueDate).toLocaleString()}
               </span>
             )}
             {task.type === "longterm" && task.subtasks && (
-              <span className="text-xs text-gray-500 flex items-center">
+              <span className="text-xs text-black flex items-center">
                 [{task.subtasks}]
               </span>
             )}
@@ -133,8 +150,8 @@ const TaskItem = ({
         <div className="flex items-center gap-2" style={{ alignItems: "center", height: "48px" }}>
           {!task.archived && (
             <button
-              className="w-6 h-6 text-gray-500 hover:text-yellow-500"
-              onClick={() => archiveTask(index)} // Pass index to archiveTask
+              className="w-6 h-6 text-black hover:text-gray-700"
+              onClick={() => archiveTask(index)}
               disabled={task.archived}
               aria-label={task.archived ? "Task already archived" : "Archive task"}
               style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}
@@ -143,8 +160,8 @@ const TaskItem = ({
             </button>
           )}
           <button
-            className="w-6 h-6 text-gray-500 hover:text-red-500"
-            onClick={() => removeTask(index)} // Pass index to removeTask
+            className="w-6 h-6 text-black hover:text-gray-700"
+            onClick={() => removeTask(index)}
             disabled={task.archived}
             aria-label={task.archived ? "Cannot remove archived task" : "Remove task"}
             style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}

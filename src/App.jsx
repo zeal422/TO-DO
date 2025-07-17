@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { motion, useSpring } from "framer-motion";
 import { useSwipeable } from "react-swipeable";
 import "./index.css";
 import Preloader from "./Preloader";
@@ -7,7 +8,6 @@ import ArchiveView from "./ArchiveView";
 import useStore from "./store";
 import { ErrorBoundary } from "react-error-boundary";
 import { Bell, Plus, Trash2, FolderPlus, FolderOpen, X, Info } from "lucide-react";
-import { motion } from "framer-motion"; // Import Framer Motion
 
 const COLORS = ["#d62338", "#357C74", "#4D4D4D", "#1C1C1C", "#2563eb"];
 const MAX_LIST_NAME = 25;
@@ -282,7 +282,12 @@ const App = () => {
     }
   }, [highlightedTask, currentList]);
 
-  const completedCount = (tasks[currentList] || []).filter((t) => t.done && !t.archived).length;
+  const currentTasks = tasks[currentList] || [];
+  const totalTasks = currentTasks.length;
+  const completedCount = currentTasks.filter((t) => t.done && !t.archived).length;
+  const progress = totalTasks > 0 ? completedCount / totalTasks : 0;
+  const springProgress = useSpring(progress, { stiffness: 100, damping: 20, restDelta: 0.001 });
+
   useEffect(() => {
     if (completedCount > 0) {
       setBadgeAnim(true);
@@ -1002,6 +1007,12 @@ const App = () => {
                   </motion.button>
                 </form>
               )}
+              <motion.div
+                className="w-full max-w-lg h-2 bg-gray-300 rounded-full mt-4"
+                initial={{ scaleX: 0 }}
+                style={{ scaleX: springProgress, transformOrigin: "left", backgroundColor: "#4CAF50" }}
+                transition={{ type: "spring", stiffness: 100, damping: 20 }}
+              />
             </div>
           )}
 
