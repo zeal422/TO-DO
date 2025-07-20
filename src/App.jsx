@@ -1,14 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, useSpring } from "framer-motion";
-import { useSwipeable } from "react-swipeable";
 import "./index.css";
 import Preloader from "./Preloader";
-import TaskItem from "./TaskItem";
-import ArchiveView from "./ArchiveView";
-import useStore from "./store";
+import TaskItem from "./features/TaskItem";
+import ArchiveView from "./features/ArchiveView";
+import useStore from "./features/store";
 import { ErrorBoundary } from "react-error-boundary";
 import { Bell, Plus, Trash2, FolderPlus, FolderOpen, X, Info } from "lucide-react";
-import { exportTasksToPDF } from "./exportUtils"; // New import
+import { exportTasksToPDF } from "./features/exportUtils";
 
 const COLORS = ["#d62338", "#357C74", "#4D4D4D", "#1C1C1C", "#2563eb"];
 const MAX_LIST_NAME = 25;
@@ -135,8 +134,8 @@ const App = () => {
   const [showArchive, setShowArchive] = useState(false);
   const [newTask, setNewTask] = useState({ text: "", dueDate: "", subtasks: "" });
   const [dueDatePrompt, setDueDatePrompt] = useState(false);
-  const [undoListQueue, setUndoListQueue] = useState([]);
   const [undoTaskQueue, setUndoTaskQueue] = useState([]);
+  const [undoListQueue, setUndoListQueue] = useState([]);
   const [showNotifCenter, setShowNotifCenter] = useState(false);
   const [selectedTask, setSelectedTask] = useState(null);
   const [highlightedTask, setHighlightedTask] = useState(null);
@@ -145,6 +144,14 @@ const App = () => {
   const [page, setPage] = useState(0);
   const [lastSeenNotifCount, setLastSeenNotifCount] = useState(() =>
     parseInt(localStorage.getItem("lastSeenNotifCount") || "0")
+  );
+  const [unseenCount, setUnseenCount] = useState(0);
+
+  const springProgress = useSpring(
+    (tasks[currentList]?.length || 0) > 0
+      ? (tasks[currentList]?.filter((t) => t.done).length || 0) / (tasks[currentList]?.length || 1)
+      : 0,
+    { stiffness: 100, damping: 20 }
   );
 
   useEffect(() => {
@@ -157,17 +164,82 @@ const App = () => {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem("notifications", JSON.stringify(notifications));
-  }, [notifications]);
+    console.log("Notifications:", notifications);
+    console.log("Last Seen Notif Count:", lastSeenNotifCount);
+    const newUnseenCount = notifications.length > lastSeenNotifCount ? notifications.length - lastSeenNotifCount : 0;
+    console.log("Calculated Unseen Count:", newUnseenCount);
+    setUnseenCount(newUnseenCount);
+    setFaviconBadge(newUnseenCount, "bell");
+    if (newUnseenCount > 0) {
+      setBadgeAnim(true);
+      setTimeout(() => setBadgeAnim(false), 700);
+    }
+  }, [notifications, lastSeenNotifCount]);
 
   useEffect(() => {
+    localStorage.setItem("notifications", JSON.stringify(notifications));
     if (!currentList && lists.length > 0) {
       setCurrentList(lists[0].id);
     } else if (lists.length === 0) {
       setCurrentList(null);
     }
-    console.log("Store state in App:", { lists, tasks, currentList });
-  }, [lists, currentList]);
+  }, [notifications, lists, currentList]);
+
+  useEffect(() => {
+    if (showNotifCenter) {
+      const handleKey = (e) => {
+        if (e.key === "Escape") setShowNotifCenter(false);
+      };
+      window.addEventListener("keydown", handleKey);
+      setLastSeenNotifCount(notifications.length);
+      localStorage.setItem("lastSeenNotifCount", notifications.length);
+      setUnseenCount(0);
+      setFaviconBadge(0, "bell");
+      return () => window.removeEventListener("keydown", handleKey);
+    }
+  }, [showNotifCenter, notifications.length]);
+
+  useEffect(() => {
+    if (selectedTask) {
+      const handleKey = (e) => {
+        if (e.key === "Escape") setSelectedTask(null);
+      };
+      window.addEventListener("keydown", handleKey);
+      return () => window.removeEventListener("keydown", handleKey);
+    }
+  }, [selectedTask]);
+
+  useEffect(() => {
+    if (highlightedTask && highlightedTask.listId === currentList) {
+      const el = taskRefs.current[highlightedTask.idx];
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        el.classList.add("highlight-glow");
+        setTimeout(() => el.classList.remove("highlight-glow"), 2000);
+      }
+    }
+  }, [highlightedTask, currentList]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("bgColor", bgColor);
+      if (getStorageSize() > LOCAL_STORAGE_LIMIT * 0.9) {
+        addNotification({
+          id: Date.now() + Math.random(),
+          type: "warning",
+          message: "Storage almost full. Archive or export data soon.",
+          time: new Date().toISOString(),
+        });
+      }
+    } catch (e) {
+      addNotification({
+        id: Date.now() + Math.random(),
+        type: "error",
+        message: "Storage quota exceeded! Delete some tasks/lists.",
+        time: new Date().toISOString(),
+      });
+    }
+  }, [bgColor]);
 
   useEffect(() => {
     if (!loading) {
@@ -225,78 +297,6 @@ const App = () => {
     }
   }, [loading, tasks]);
 
-  useEffect(() => {
-    try {
-      localStorage.setItem("bgColor", bgColor);
-      if (getStorageSize() > LOCAL_STORAGE_LIMIT * 0.9) {
-        addNotification({
-          id: Date.now() + Math.random(),
-          type: "warning",
-          message: "Storage almost full. Archive or export data soon.",
-          time: new Date().toISOString(),
-        });
-      }
-    } catch (e) {
-      addNotification({
-        id: Date.now() + Math.random(),
-        type: "error",
-        message: "Storage quota exceeded! Delete some tasks/lists.",
-        time: new Date().toISOString(),
-      });
-    }
-  }, [bgColor]);
-
-  useEffect(() => {
-    if (selectedTask) {
-      const handleKey = (e) => {
-        if (e.key === "Escape") setSelectedTask(null);
-      };
-      window.addEventListener("keydown", handleKey);
-      return () => window.removeEventListener("keydown", handleKey);
-    }
-  }, [selectedTask]);
-
-  useEffect(() => {
-    if (showNotifCenter) {
-      const handleKey = (e) => {
-        if (e.key === "Escape") setShowNotifCenter(false);
-      };
-      window.addEventListener("keydown", handleKey);
-      setLastSeenNotifCount(notifications.length);
-      localStorage.setItem("lastSeenNotifCount", notifications.length);
-      setFaviconBadge(0, "bell");
-      return () => window.removeEventListener("keydown", handleKey);
-    } else if (!showNotifCenter && lastSeenNotifCount >= 0) {
-      const unseenCount = notifications.length > lastSeenNotifCount ? notifications.length - lastSeenNotifCount : 0;
-      setFaviconBadge(unseenCount, "bell");
-    }
-  }, [showNotifCenter, notifications.length, lastSeenNotifCount]);
-
-  useEffect(() => {
-    if (highlightedTask && highlightedTask.listId === currentList) {
-      const el = taskRefs.current[highlightedTask.idx];
-      if (el) {
-        el.scrollIntoView({ behavior: "smooth", block: "center" });
-        el.classList.add("highlight-glow");
-        setTimeout(() => el.classList.remove("highlight-glow"), 2000);
-      }
-    }
-  }, [highlightedTask, currentList]);
-
-  const currentTasks = tasks[currentList] || [];
-  const totalTasks = currentTasks.length;
-  const completedCount = currentTasks.filter((t) => t.done && !t.archived).length;
-  const progress = totalTasks > 0 ? completedCount / totalTasks : 0;
-  const springProgress = useSpring(progress, { stiffness: 100, damping: 20, restDelta: 0.001 });
-
-  useEffect(() => {
-    if (completedCount > 0) {
-      setBadgeAnim(true);
-      const timeout = setTimeout(() => setBadgeAnim(false), 700);
-      return () => clearTimeout(timeout);
-    }
-  }, [completedCount]);
-
   function showBrowserNotification(title, body) {
     if ("Notification" in window && Notification.permission === "granted") {
       try {
@@ -320,6 +320,7 @@ const App = () => {
   }
 
   function pushNotification({ type, message, task, list }) {
+    console.log("Pushing notification:", { type, message, task, list }); // Debug log
     addNotification({
       id: Date.now() + Math.random(),
       type,
@@ -391,68 +392,68 @@ const App = () => {
     (idx) => {
       const globalIdx = page * TASKS_PER_PAGE + idx;
       const taskToArchive = { ...((tasks[currentList] || [])[globalIdx]), archived: true };
-      archiveTask(currentList, globalIdx, taskToArchive);
-      setUndoTaskQueue((prevQueue) => {
-        const existing = prevQueue.find((u) => u.task.id === taskToArchive.id);
-        if (existing) {
-          clearTimeout(existing.timer);
-          return prevQueue.map((u) =>
-            u.task.id === taskToArchive.id
-              ? {
-                  ...u,
-                  timer: setTimeout(() => {
-                    setUndoTaskQueue((q2) => q2.filter((u2) => u2.task.id !== taskToArchive.id));
-                  }, UNDO_TIMEOUT),
-                }
-              : u
-          );
-        } else {
-          return [
-            ...prevQueue,
-            {
-              task: taskToArchive,
-              idx: globalIdx,
-              listId: currentList,
-              timer: setTimeout(() => {
-                setUndoTaskQueue((q2) => q2.filter((u) => u.task.id !== taskToArchive.id));
-              }, UNDO_TIMEOUT),
-            },
-          ];
-        }
-      });
+      archiveTask(currentList, globalIdx);
+      setUndoTaskQueue((prevQueue) => [
+        ...prevQueue.filter((u) => u.taskId !== taskToArchive.id),
+        {
+          task: taskToArchive,
+          taskId: taskToArchive.id,
+          listId: currentList,
+          idx: globalIdx,
+          isArchive: true,
+          timer: setTimeout(() => {
+            setUndoTaskQueue((q) => q.filter((u) => u.taskId !== taskToArchive.id));
+          }, UNDO_TIMEOUT),
+        },
+      ]);
     },
-    [currentList, tasks, page, archiveTask]
-  );
-
-  const handleUndoArchiveTask = useCallback(
-    (taskId) => {
-      const undoInfo = undoTaskQueue.find((u) => u.task.id === taskId);
-      if (!undoInfo) return;
-      clearTimeout(undoInfo.timer);
-      undoArchiveTask(undoInfo.listId, undoInfo.task, undoInfo.idx);
-      setUndoTaskQueue((q) => q.filter((u) => u.task.id !== taskId));
-    },
-    [undoTaskQueue, undoArchiveTask]
+    [currentList, page, tasks, archiveTask]
   );
 
   const handleRemoveTask = useCallback(
     (idx) => {
       const globalIdx = page * TASKS_PER_PAGE + idx;
       const taskToRemove = (tasks[currentList] || [])[globalIdx];
-      removeTask(currentList, globalIdx);
+      removeTask(currentList, globalIdx, false);
       setUndoTaskQueue((prevQueue) => [
-        ...prevQueue,
+        ...prevQueue.filter((u) => u.taskId !== taskToRemove.id),
         {
           task: taskToRemove,
-          idx: globalIdx,
+          taskId: taskToRemove.id,
           listId: currentList,
+          idx: globalIdx,
+          isArchive: false,
           timer: setTimeout(() => {
-            setUndoTaskQueue((q) => q.filter((u) => u.task.id !== taskToRemove.id));
+            setUndoTaskQueue((q) => q.filter((u) => u.taskId !== taskToRemove.id));
           }, UNDO_TIMEOUT),
         },
       ]);
     },
     [currentList, page, tasks, removeTask]
+  );
+
+  const handleUndoArchiveTask = useCallback(
+    (taskId) => {
+      const undoInfo = undoTaskQueue.find((u) => u.taskId === taskId);
+      if (undoInfo && undoInfo.task) {
+        clearTimeout(undoInfo.timer);
+        undoArchiveTask(undoInfo.listId, undoInfo.taskId);
+        setUndoTaskQueue((prevQueue) => prevQueue.filter((u) => u.taskId !== taskId));
+      }
+    },
+    [undoTaskQueue, undoArchiveTask]
+  );
+
+  const handleUndoRemoveTask = useCallback(
+    (taskId) => {
+      const undoInfo = undoTaskQueue.find((u) => u.taskId === taskId);
+      if (undoInfo) {
+        clearTimeout(undoInfo.timer);
+        addTask(undoInfo.listId, undoInfo.task);
+        setUndoTaskQueue((prevQueue) => prevQueue.filter((u) => u.taskId !== taskId));
+      }
+    },
+    [undoTaskQueue, addTask]
   );
 
   const handleAddList = useCallback(() => {
@@ -474,20 +475,20 @@ const App = () => {
 
   const handleRemoveList = useCallback(
     (id) => {
-      if (!window.confirm("Delete this list and all its tasks?")) return;
+      if (!window.confirm("Are you sure?")) return;
       const deletedList = lists.find((l) => l.id === id);
       const deletedTasks = tasks[id] || [];
       const deletedArchive = archive[id] || [];
       removeList(id);
-      setUndoListQueue((q) => [
-        ...q,
+      setUndoListQueue((prevQueue) => [
+        ...prevQueue.filter((u) => u.list.id !== id),
         {
           list: deletedList,
           tasks: deletedTasks,
           archive: deletedArchive,
           prevCurrentList: currentList,
           timer: setTimeout(() => {
-            setUndoListQueue((q2) => q2.filter((u) => u.list.id !== id));
+            setUndoListQueue((q) => q.filter((u) => u.list.id !== id));
           }, UNDO_TIMEOUT),
         },
       ]);
@@ -508,24 +509,11 @@ const App = () => {
     [undoListQueue, undoDeleteList]
   );
 
-  const handleUndoRemoveTask = useCallback(
-    (taskId) => {
-      const undoInfo = undoTaskQueue.find((u) => u.task.id === taskId);
-      if (!undoInfo) return;
-      clearTimeout(undoInfo.timer);
-      addTask(undoInfo.listId, undoInfo.task);
-      setUndoTaskQueue((q) => q.filter((u) => u.task.id !== taskId));
-    },
-    [undoTaskQueue, addTask]
-  );
-
   const handleDeleteAllArchived = useCallback(() => {
     if (window.confirm("Are you sure you want to delete all archived tasks? This action cannot be undone.")) {
       clearArchive(currentList);
     }
   }, [currentList, clearArchive]);
-
-  const unseenCount = notifications.length > lastSeenNotifCount ? notifications.length - lastSeenNotifCount : 0;
 
   if (loading) return <Preloader />;
 
@@ -557,13 +545,16 @@ const App = () => {
             {lists.map((list) => (
               <motion.button
                 key={list.id}
-                className="px-3 py-1 rounded-full font-semibold text-sm sm:text-base"
+                className="px-3 py-1 rounded-full font-semibold text-sm sm:text-base relative flex items-center"
                 title={list.name}
                 style={{
-                  background: currentList === list.id ? "#fff" : "rgba(0,0,0,0.3)",
-                  color: currentList === list.id ? "#000" : "#fff",
-                  boxShadow: currentList === list.id ? "0 1px 4px rgba(0,0,0,0.08)" : undefined,
+                  background: currentList === list.id ? "rgb(255, 255, 255)" : "rgba(0,0,0,0.3)",
+                  color: currentList === list.id ? "rgb(0, 0, 0)" : "#fff",
                   border: "none",
+                  transform: "none",
+                  boxShadow: currentList === list.id ? "rgba(0, 0, 0, 0.08) 0px 1px 4px" : undefined,
+                  position: "relative",
+                  overflow: "visible",
                 }}
                 whileHover={{ scale: 1.1 }}
                 transition={{ duration: 0.3 }}
@@ -573,37 +564,84 @@ const App = () => {
                 }}
                 aria-label={`Switch to list ${list.name}`}
               >
-                {list.name}
-                <Trash2
-                  className="inline ml-2 w-4 h-4 text-red-400 hover:text-red-600"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleRemoveList(list.id);
+                <span className="flex-grow">{list.name}</span>
+                <span style={{ position: "relative", zIndex: 1 }}>
+                  <div
+                    role="button"
+                    className="ml-2 w-4 h-4 text-red-400 hover:text-red-600 cursor-pointer flex items-center justify-center"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleRemoveList(list.id);
+                    }}
+                    aria-label={`Delete list ${list.name}`}
+                    tabIndex={0}
+                    style={{ background: "none", border: "none", padding: 0 }}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </div>
+                </span>
+                <motion.div
+                  className="absolute inset-0"
+                  style={{
+                    borderRadius: "inherit",
+                    border: "2px solid transparent",
+                    background: "linear-gradient(45deg, #00cc99, #ff66cc) border-box",
+                    backgroundSize: "200% 200%",
+                    WebkitMask: "linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)",
+                    WebkitMaskComposite: "destination-out",
+                    maskComposite: "exclude",
+                    animation: "borderAnimation 6s linear infinite",
                   }}
-                  aria-label={`Delete list ${list.name}`}
-                  tabIndex={-1}
                 />
               </motion.button>
             ))}
             <motion.button
-              className="px-2 py-1 rounded-full bg-green-500 text-white flex items-center gap-1 text-sm sm:text-base"
+              className="px-6 py-2 rounded-full bg-green-500 text-white flex items-center gap-2 text-sm sm:text-base relative"
+              style={{ borderRadius: "9999px", position: "relative" }}
               whileHover={{ scale: 1.1 }}
               transition={{ duration: 0.3 }}
               onClick={handleAddList}
               aria-label="Add new list"
             >
-              <FolderPlus className="w-4 h-4" /> Add List
+              <FolderPlus className="w-5 h-5" /> Add List
+              <motion.div
+                className="absolute inset-0"
+                style={{
+                  borderRadius: "inherit",
+                  border: "2px solid transparent",
+                  background: "linear-gradient(45deg, #00cc99, #ff66cc) border-box",
+                  backgroundSize: "200% 200%",
+                  WebkitMask: "linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)",
+                  WebkitMaskComposite: "destination-out",
+                  maskComposite: "exclude",
+                  animation: "borderAnimation 6s linear infinite",
+                }}
+              />
             </motion.button>
             <motion.button
-              className={`px-2 py-1 rounded-full flex items-center gap-1 text-sm sm:text-base ${
+              className={`px-6 py-2 rounded-full flex items-center gap-2 text-sm sm:text-base relative ${
                 showArchive ? "bg-[#fbbf24] text-black" : "bg-black/30 text-white"
               }`}
+              style={{ borderRadius: "9999px", position: "relative" }}
               whileHover={{ scale: 1.1 }}
               transition={{ duration: 0.3 }}
               onClick={() => setShowArchive((a) => !a)}
               aria-label={showArchive ? "Hide Archive" : "Show Archive"}
             >
-              <FolderOpen className="w-4 h-4" /> {showArchive ? "Hide" : "Show"} Archive
+              <FolderOpen className="w-5 h-5" /> {showArchive ? "Hide" : "Show"} Archive
+              <motion.div
+                className="absolute inset-0"
+                style={{
+                  borderRadius: "inherit",
+                  border: "2px solid transparent",
+                  background: "linear-gradient(45deg, #00cc99, #ff66cc) border-box",
+                  backgroundSize: "200% 200%",
+                  WebkitMask: "linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)",
+                  WebkitMaskComposite: "destination-out",
+                  maskComposite: "exclude",
+                  animation: "borderAnimation 6s linear infinite",
+                }}
+              />
             </motion.button>
             <motion.button
               className="px-2 py-1 rounded-full bg-blue-500 text-white flex items-center gap-1 text-sm sm:text-base"
@@ -617,36 +655,40 @@ const App = () => {
           </div>
 
           {undoTaskQueue.map((undoInfo, idx) => (
-            <div
-              key={undoInfo.task.id}
-              className="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-gray-900 text-white px-6 py-3 rounded-full shadow-lg flex items-center gap-4 z-50 animate-fade-in"
-              role="alert"
-              style={{ bottom: `${4 + idx * 60}px` }}
-            >
-              {undoInfo.task.archived ? (
-                <span>Task <b>{undoInfo.task.text}</b> archived.</span>
-              ) : (
-                <span>Task <b>{undoInfo.task.text}</b> deleted.</span>
-              )}
-              <motion.button
-                className="bg-blue-500 hover:bg-blue-700 text-white px-3 py-1 rounded-full font-semibold"
-                whileHover={{ scale: 1.1 }}
-                transition={{ duration: 0.3 }}
-                onClick={() =>
-                  undoInfo.task.archived
-                    ? handleUndoArchiveTask(undoInfo.task.id)
-                    : handleUndoRemoveTask(undoInfo.task.id)
-                }
-                aria-label={undoInfo.task.archived ? "Undo archive task" : "Undo delete task"}
+            undoInfo.task && (
+              <div
+                key={`${undoInfo.taskId}-${Date.now()}-${idx}`}
+                className="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-gray-900 text-white px-6 py-3 rounded-full shadow-lg flex items-center gap-4 z-50 animate-fade-in"
+                role="alert"
+                style={{ bottom: `${4 + idx * 60}px` }}
+                onClick={(e) => e.stopPropagation()}
               >
-                Undo
-              </motion.button>
-            </div>
+                <span>
+                  Task "{undoInfo.task.text}" {undoInfo.isArchive ? "archived" : "removed"}.
+                </span>
+                <motion.button
+                  className="bg-blue-500 hover:bg-blue-700 text-white px-3 py-1 rounded-full font-semibold"
+                  whileHover={{ scale: 1.1 }}
+                  transition={{ duration: 0.3 }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (undoInfo.isArchive) {
+                      handleUndoArchiveTask(undoInfo.taskId);
+                    } else {
+                      handleUndoRemoveTask(undoInfo.taskId);
+                    }
+                  }}
+                  aria-label={undoInfo.isArchive ? "Undo archive task" : "Undo remove task"}
+                >
+                  Undo
+                </motion.button>
+              </div>
+            )
           ))}
 
           {undoListQueue.map((undoInfo, idx) => (
             <div
-              key={undoInfo.list.id}
+              key={`${undoInfo.list.id}-${Date.now()}-${idx}`}
               className="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-gray-900 text-white px-6 py-3 rounded-full shadow-lg flex items-center gap-4 z-50 animate-fade-in"
               role="alert"
               style={{ bottom: `${4 + idx * 60}px` }}
@@ -675,6 +717,7 @@ const App = () => {
                   setShowNotifCenter(true);
                   setLastSeenNotifCount(notifications.length);
                   localStorage.setItem("lastSeenNotifCount", notifications.length);
+                  setUnseenCount(0);
                   setFaviconBadge(0, "bell");
                 }}
                 aria-label="Show notifications"
@@ -785,7 +828,7 @@ const App = () => {
                   ))}
                 </ul>
                 <motion.button
-                  className="mt-4 w-full bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-full py-2 font-semibold"
+                  className="mt-6 w-full bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-full py-2 font-semibold"
                   whileHover={{ scale: 1.1 }}
                   transition={{ duration: 0.3 }}
                   onClick={() => clearNotifications()}
@@ -799,7 +842,7 @@ const App = () => {
 
           {selectedTask && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" role="dialog" aria-modal="true">
-              <div className="bg-white rounded-xl shadow-2xl w-full max-w-xs sm:max-w-md mx-2 p-4 relative">
+              <div className="bg-white rounded-xl shadow-2xl w-full max-w-xs sm:max-w-md mx-2 p-4 relative overflow-hidden">
                 <motion.button
                   className="absolute top-2 right-2 text-gray-500 hover:text-black"
                   whileHover={{ scale: 1.1 }}
@@ -846,18 +889,20 @@ const App = () => {
                   )}
                 </div>
                 {!selectedTask.archived && !selectedTask.done && (
-                  <motion.button
-                    className="mt-4 w-full bg-green-500 hover:bg-green-600 text-white rounded py-2"
-                    whileHover={{ scale: 1.1 }}
-                    transition={{ duration: 0.3 }}
-                    onClick={() => {
-                      handleFinishTask(pagedTasks.findIndex((t) => t.id === selectedTask.id));
-                      setSelectedTask(null);
-                    }}
-                    aria-label="Finish task"
-                  >
-                    Finish Task
-                  </motion.button>
+                  <div className="mt-4">
+                    <motion.button
+                      className="w-full bg-green-500 hover:bg-green-600 text-white rounded py-2"
+                      whileHover={{ scale: 1.1 }}
+                      transition={{ duration: 0.3 }}
+                      onClick={() => {
+                        handleFinishTask(pagedTasks.findIndex((t) => t.id === selectedTask.id));
+                        setSelectedTask(null);
+                      }}
+                      aria-label="Finish task"
+                    >
+                      Finish Task
+                    </motion.button>
+                  </div>
                 )}
               </div>
             </div>
@@ -885,16 +930,23 @@ const App = () => {
                   <li>Finish or archive tasks by clicking the options on each task card.</li>
                   <li>Check notifications (bell icon) for reminders and task updates.</li>
                   <li>Switch lists or view the archive using the buttons above.</li>
+                  <li>Export tasks to PDF using the export to PDF button.</li>
+                  <li>Clear all tasks or lists using the trash icon.</li>
+                  <li>Use the search bar to filter tasks by name or due date.</li>
+                  <li>Use the keyboard shortcuts to navigate and interact with the app.</li>
+                  <li>Have fun!</li>
                 </ul>
-                <motion.button
-                  className="mt-4 w-full bg-blue-500 hover:bg-blue-600 text-white rounded py-2"
-                  whileHover={{ scale: 1.1 }}
-                  transition={{ duration: 0.3 }}
-                  onClick={() => setShowInfoModal(false)}
-                  aria-label="Close info modal"
-                >
-                  Got It
-                </motion.button>
+                <div className="mt-4">
+                  <motion.button
+                    className="w-full bg-blue-500 hover:bg-blue-600 text-white rounded py-2"
+                    whileHover={{ scale: 1.1 }}
+                    transition={{ duration: 0.3 }}
+                    onClick={() => setShowInfoModal(false)}
+                    aria-label="Close info modal"
+                  >
+                    Got It
+                  </motion.button>
+                </div>
               </div>
             </div>
           )}
@@ -1031,19 +1083,19 @@ const App = () => {
               {pagedTasks.length === 0 && lists.length > 0 && (
                 <div className="text-white opacity-60 mt-4">No tasks yet. Add one above!</div>
               )}
-              {pagedTasks.map((task, index) => (
+              {pagedTasks.map((task) => (
                 <TaskItem
-                  key={task.id || task.created || index}
+                  key={task.id}
                   task={task}
-                  index={index}
-                  globalIdx={page * TASKS_PER_PAGE + index}
-                  finishTask={() => handleFinishTask(index)}
-                  archiveTask={() => handleArchiveTask(index)}
-                  removeTask={() => handleRemoveTask(index)}
+                  index={pagedTasks.indexOf(task)}
+                  globalIdx={page * TASKS_PER_PAGE + pagedTasks.indexOf(task)}
+                  finishTask={() => handleFinishTask(pagedTasks.indexOf(task))}
+                  archiveTask={() => handleArchiveTask(pagedTasks.indexOf(task))}
+                  removeTask={() => handleRemoveTask(pagedTasks.indexOf(task))}
                   isHighlighted={
                     highlightedTask &&
                     highlightedTask.listId === currentList &&
-                    highlightedTask.idx === page * TASKS_PER_PAGE + index
+                    highlightedTask.idx === page * TASKS_PER_PAGE + pagedTasks.indexOf(task)
                   }
                   taskRefs={taskRefs}
                   setSelectedTask={setSelectedTask}

@@ -9,9 +9,9 @@ const ArchiveView = ({ currentList, setShowArchive, setSelectedTask, taskRefs, o
   useEffect(() => {
     return () => {
       undoTaskQueue.forEach(undo => clearTimeout(undo.timer));
-      setUndoTaskQueue([]);
+      setUndoTaskQueue([]); // Clear queue when component unmounts
     };
-  }, [currentList]);
+  }, []);
 
   const handleRemoveTask = (listId, idx) => {
     const taskToRemove = archive[listId][idx];
@@ -59,10 +59,10 @@ const ArchiveView = ({ currentList, setShowArchive, setSelectedTask, taskRefs, o
         <div className="text-white opacity-60 mt-4">No archived tasks yet.</div>
       ) : (
         <>
-          {archivedTasks.map((task, index) => (
+          {archivedTasks.map((task) => (
             <div
-              key={task.id || task.created || index}
-              ref={el => (taskRefs.current[index] = el)}
+              key={task.id} // Use only task.id
+              ref={el => (taskRefs.current[archivedTasks.indexOf(task)] = el)}
               className={`relative w-full max-w-lg rounded-full px-4 py-2 shadow-md transition-all duration-300 ${
                 isExpired(task) ? "bg-red-100 opacity-60" : task.done ? "bg-green-100 opacity-80" : "bg-gray-200"
               }`}
@@ -120,8 +120,7 @@ const ArchiveView = ({ currentList, setShowArchive, setSelectedTask, taskRefs, o
                     className="w-6 h-6 text-gray-500 hover:text-red-500"
                     onClick={(e) => {
                       e.stopPropagation();
-                      const globalIdx = index;
-                      handleRemoveTask(currentList, globalIdx);
+                      handleRemoveTask(currentList, archivedTasks.indexOf(task));
                     }}
                     aria-label="Delete archived task"
                     style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}
@@ -149,7 +148,7 @@ const ArchiveView = ({ currentList, setShowArchive, setSelectedTask, taskRefs, o
           style={{ bottom: `${4 + idx * 60}px` }}
         >
           <span>
-            Task <b>{undoInfo.task.text}</b> {undoInfo.task.archived ? "archived" : "deleted"}.
+            Task <b>{undoInfo.task.text}</b> removed from archive.
           </span>
           <button
             className="bg-blue-500 hover:bg-blue-700 text-white px-3 py-1 rounded-full font-semibold transition"

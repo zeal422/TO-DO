@@ -12,18 +12,16 @@ const useStore = create(
         set((state) => ({
           tasks: {
             ...state.tasks,
-            [listId]: [task, ...(state.tasks[listId] || [])], // Prepend new task
+            [listId]: [task, ...(state.tasks[listId] || [])],
           },
         })),
       toggleDone: (listId, idx, updatedTask) =>
         set((state) => {
           const updated = [...(state.tasks[listId] || [])];
           if (idx >= 0 && idx < updated.length) {
-            // If updatedTask is provided, use it (from App.jsx)
             if (updatedTask) {
               updated[idx] = { ...updatedTask, completedAt: updatedTask.done ? (updatedTask.completedAt || new Date().toISOString()) : undefined };
             } else {
-              // Fallback: toggle done and set completedAt if done
               updated[idx].done = !updated[idx].done;
               updated[idx].completedAt = updated[idx].done ? new Date().toISOString() : undefined;
             }
@@ -34,13 +32,11 @@ const useStore = create(
         }),
       archiveTask: (listId, idx) =>
         set((state) => {
-          const task = (state.tasks[listId] || [])[idx];
-          if (task && !task.archived) {
-            const updatedTasks = (state.tasks[listId] || []).filter((_, i) => i !== idx);
-            const updatedArchive = [
-              ...(state.archive[listId] || []),
-              { ...task, archived: true },
-            ];
+          const taskList = state.tasks[listId] || [];
+          if (idx >= 0 && idx < taskList.length && !taskList[idx].archived) {
+            const task = { ...taskList[idx], archived: true };
+            const updatedTasks = taskList.filter((_, i) => i !== idx);
+            const updatedArchive = [...(state.archive[listId] || []), task];
             return {
               tasks: { ...state.tasks, [listId]: updatedTasks },
               archive: { ...state.archive, [listId]: updatedArchive },
@@ -48,17 +44,20 @@ const useStore = create(
           }
           return state;
         }),
-      undoArchiveTask: (listId, task, idx) =>
+      undoArchiveTask: (listId, taskId) =>
         set((state) => {
-          const updatedArchive = (state.archive[listId] || []).filter((t, i) => i !== idx);
-          const updatedTasks = [
-            ...(state.tasks[listId] || []),
-            { ...task, archived: false },
-          ];
-          return {
-            tasks: { ...state.tasks, [listId]: updatedTasks },
-            archive: { ...state.archive, [listId]: updatedArchive },
-          };
+          const archivedTasks = state.archive[listId] || [];
+          const taskToUndo = archivedTasks.find((t) => t.id === taskId);
+          if (taskToUndo) {
+            const updatedArchive = archivedTasks.filter((t) => t.id !== taskId);
+            const updatedTasks = [...(state.tasks[listId] || []), { ...taskToUndo, archived: false }];
+            return {
+              tasks: { ...state.tasks, [listId]: updatedTasks },
+              archive: { ...state.archive, [listId]: updatedArchive },
+            };
+          }
+          console.warn("No task found to undo in archive for taskId:", taskId);
+          return state;
         }),
       removeTask: (listId, idx, isArchive = false) =>
         set((state) => {
@@ -68,9 +67,9 @@ const useStore = create(
               archive: { ...state.archive, [listId]: updatedArchive },
             };
           } else {
-            const updated = (state.tasks[listId] || []).filter((_, i) => i !== idx);
+            const updatedTasks = (state.tasks[listId] || []).filter((_, i) => i !== idx);
             return {
-              tasks: { ...state.tasks, [listId]: updated },
+              tasks: { ...state.tasks, [listId]: updatedTasks },
             };
           }
         }),
@@ -84,7 +83,7 @@ const useStore = create(
       undoDeleteTaskFromArchive: (listId, task, idx) =>
         set((state) => {
           const updatedArchive = [...(state.archive[listId] || [])];
-          updatedArchive.splice(idx, 0, task); // Reinsert at original index
+          updatedArchive.splice(idx, 0, task);
           return {
             archive: { ...state.archive, [listId]: updatedArchive },
           };
@@ -114,7 +113,7 @@ const useStore = create(
         })),
       addNotification: (notification) =>
         set((state) => ({
-          notifications: [notification, ...state.notifications].slice(0, 50),
+          notifications: [notification, ...state.notifications].slice(0, 100),
         })),
       clearNotifications: () =>
         set((state) => ({ notifications: [] })),

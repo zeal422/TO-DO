@@ -151,7 +151,7 @@ const TaskItem = ({
           {!task.archived && (
             <button
               className="w-6 h-6 text-black hover:text-gray-700"
-              onClick={() => archiveTask(index)}
+              onClick={() => archiveTask(globalIdx)}
               disabled={task.archived}
               aria-label={task.archived ? "Task already archived" : "Archive task"}
               style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}
@@ -161,7 +161,7 @@ const TaskItem = ({
           )}
           <button
             className="w-6 h-6 text-black hover:text-gray-700"
-            onClick={() => removeTask(index)}
+            onClick={() => removeTask(globalIdx)}
             disabled={task.archived}
             aria-label={task.archived ? "Cannot remove archived task" : "Remove task"}
             style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}
